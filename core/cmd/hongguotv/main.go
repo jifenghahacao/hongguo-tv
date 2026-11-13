@@ -37,6 +37,8 @@ type server struct {
 	searchHistoryStore   *searchHistoryStore
 	feedHistoryStore     *feedHistoryStore
 	uiSettingsStore      *uiSettingsStore
+	feedCacheStore       *feedCacheStore
+	playCacheStore       *playCacheStore
 	searchDiscoveryCache searchDiscoveryCache
 }
 
@@ -87,6 +89,19 @@ func main() {
 	if err != nil {
 		log.Printf("prepare ui settings: %v", err)
 	}
+	s.feedCacheStore, err = newFeedCacheStore(*dataDir)
+	if err != nil {
+		log.Printf("prepare feed cache: %v", err)
+	}
+	s.playCacheStore, err = newPlayCacheStore(*dataDir)
+	if err != nil {
+		log.Printf("prepare play cache: %v", err)
+	}
+	defer func() {
+		if s.playCacheStore != nil {
+			s.playCacheStore.flush()
+		}
+	}()
 	s.accounts, err = newAccountManager(*dataDir, library, s.hongguo)
 	if err != nil {
 		log.Fatalf("prepare account: %v", err)
@@ -107,6 +122,7 @@ func main() {
 	mux.HandleFunc("/api/v1/search-history", s.searchHistory)
 	mux.HandleFunc("/api/v1/feed-history", s.feedHistory)
 	mux.HandleFunc("/api/v1/ui-settings", s.uiSettings)
+	mux.HandleFunc("/api/v1/feed-cache", s.feedCache)
 	mux.HandleFunc("/api/v1/category", s.category)
 	mux.HandleFunc("/api/v1/Category", s.category)
 	mux.HandleFunc("/api/v1/rank", s.rank)
@@ -417,6 +433,15 @@ func (s *server) playInfo(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	var cacheKey string
+	if s.playCacheStore != nil && r.URL.Query().Get("nc") != "1" {
+		cacheKey = playCacheKey(r.URL.Query())
+		if raw, ok := s.playCacheStore.get(cacheKey); ok {
+			w.Header().Set("Cache-Control", "no-store")
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": json.RawMessage(raw)})
+			return
+		}
+	}
 	var result PlayInfo
 	if r.URL.Query().Get("mode") == "range" {
 		result, err = s.hongguo.PlayInfoRangeQualityMode(r.Context(), r.URL.Query().Get("series_id"), r.URL.Query().Get("vid"), quality, r.URL.Query().Get("fallback") == "1", r.URL.Query().Get("prefetch") != "1", codecMode, contentType)
@@ -426,6 +451,11 @@ func (s *server) playInfo(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writePlaybackPreparationError(w, err)
 		return
+	}
+	if s.playCacheStore != nil && cacheKey != "" {
+		if raw, marshalErr := json.Marshal(result); marshalErr == nil {
+			s.playCacheStore.put(cacheKey, raw)
+		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": result})
 }

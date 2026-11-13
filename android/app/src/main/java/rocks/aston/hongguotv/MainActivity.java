@@ -1,7 +1,11 @@
 package rocks.aston.hongguotv;
 
 import android.app.Activity;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.media.AudioManager;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
@@ -70,6 +74,12 @@ public class MainActivity extends Activity {
     private AnimatedVectorDrawable startupAnimation;
     private final Runnable startupPanelFallback = this::hideStartupPanel;
     private AppUpdater appUpdater;
+    private BroadcastReceiver noisyReceiver;
+    // ACTION_AUDIO_BECOMING_NOISY covers pulling out wired headphones
+    // (playback would otherwise blast from the speaker). Call/other-app
+    // interruptions are already handled by the WebView's own audio focus
+    // client — an app-level requestAudioFocus would fight with it and get
+    // spurious LOSS callbacks that pause the feed on startup (black screen).
     private RecommendedApps recommendedApps;
     private TvHomeChannelManager homeChannelManager;
     private String pendingHomeProgram;
@@ -358,6 +368,15 @@ public class MainActivity extends Activity {
         decor.getViewTreeObserver().addOnGlobalLayoutListener(keyboardLayoutListener);
         applyFullscreen();
         grantWebViewFocus(false);
+        noisyReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                WebView view = webView;
+                if (view != null && pageReady && !destroyed) {
+                    view.evaluateJavascript("window.HongguoTV && window.HongguoTV.audioFocus && window.HongguoTV.audioFocus(false)", null);
+                }
+            }
+        };
+        registerReceiver(noisyReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
         waitForCore();
     }
 
@@ -895,6 +914,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         destroyed = true;
+        if (noisyReceiver != null) {
+            try { unregisterReceiver(noisyReceiver); } catch (Exception ignored) { }
+            noisyReceiver = null;
+        }
         pageReady = false;
         playbackPageActive = false;
         inputEditingState.reset();

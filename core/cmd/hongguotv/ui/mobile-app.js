@@ -108,9 +108,19 @@
     return { stop: stop, isBoosting: function () { return boosting; }, wasBoosting: function () { return boosting; } };
   }
 
-  var settings = { quality: "", danmaku: true, auto: true, speed: 1, dmArea: 25 };
+  var settings = { quality: "", danmaku: true, auto: true, speed: 1, dmArea: 25, volume: 1, brightness: 1 };
   try { Object.assign(settings, JSON.parse(localStorage.getItem("hg-mobile") || "{}")); } catch (e) { }
   document.documentElement.style.setProperty("--dm-area", (settings.dmArea || 25) + "%");
+  // Volume/brightness are app-wide: every video element (feed pair + player
+  // pair) mirrors the chosen values, persisted like the rest of settings.
+  function applyAV() {
+    var b = settings.brightness || 1, v = settings.volume == null ? 1 : settings.volume;
+    [feedVideo, feedVideoB, pVideo, pVideoB].forEach(function (el) {
+      if (!el) return;
+      el.volume = v;
+      el.style.filter = b < 0.99 ? "brightness(" + b + ")" : "";
+    });
+  }
   function saveSettings() {
     localStorage.setItem("hg-mobile", JSON.stringify(settings));
     // Mirror to the core: the WebView origin (and localStorage with it) dies
@@ -328,7 +338,7 @@
         prefetchFeed(feedItems[activeFeed + 1].d);
         preloadFeedNext(feedItems[activeFeed + 1]);
       }
-      if (pager.kind === "recommend") pushShown(items.map(function (x) { return x.series_id; }));
+      if (pager.kind === "recommend") { pushShown(items.map(function (x) { return x.series_id; })); saveFeedCache(); }
       pager.session = d.session_id || pager.session;
       pager.offset = d.next_offset ? d.next_offset : pager.offset + items.length;
       if (!d.has_more || !items.length) pager.done = true;
@@ -342,6 +352,37 @@
       }
     } catch (e) { pager.done = true; }
     pager.loading = false;
+  }
+
+  // Cold-start fast path: the previous recommendation batch lives on disk in
+  // the core (WebView localStorage dies with the ephemeral origin), so the
+  // next launch can paint covers and start the first video while the fresh
+  // page is still in flight. Fresh items dedupe against pager.shown.
+  async function bootFeedCache() {
+    try {
+      var c = await getJSON("/api/v1/feed-cache");
+      if (!c || !c.items || !c.items.length || !c.ts || Date.now() - c.ts > 12 * 3600 * 1000) return;
+      if (pager.kind !== "recommend") return;
+      // Rotate the cached batch so every launch opens on a different drama
+      // instead of replaying the same first screen.
+      var n = c.items.length, k = Math.floor(Math.random() * n);
+      for (var j = 0; j < n; j++) addFeedItem(c.items[(k + j) % n]);
+      // Start resolving play URLs immediately — don't wait for activate()'s
+      // serial path; the srcCache hit then makes the first frame instant.
+      for (var q = 0; q < Math.min(3, feedItems.length); q++) {
+        var cd = feedItems[q].d;
+        prefetchFeed(cd, (cd.vid_list && cd.vid_list[0]) || cd.vid);
+      }
+      if (feedItems.length) activate(0);
+    } catch (e) { }
+  }
+  var feedCacheTimer = null;
+  function saveFeedCache() {
+    if (pager.kind !== "recommend" || !feedItems.length) return;
+    clearTimeout(feedCacheTimer);
+    feedCacheTimer = setTimeout(function () {
+      postJSON("/api/v1/feed-cache", { items: feedItems.slice(0, 24).map(function (x) { return x.d; }) }).catch(function () { });
+    }, 1500);
   }
 
   function addFeedItem(d) {
@@ -418,6 +459,15 @@
     });
   }
 
+  function showFeedSpin(it) {
+    if (!it || it.el.querySelector(".fi-spin")) return;
+    var s = document.createElement("div");
+    s.className = "fi-spin";
+    it.el.querySelector(".fi-scene").appendChild(s);
+  }
+  function hideFeedSpin() {
+    feed.querySelectorAll(".fi-spin").forEach(function (s) { s.remove(); });
+  }
   function activate(i) {
     if (i === activeFeed || !feedItems[i]) return;
     if (homeCmt) homeCmt.close(); // switching drama closes the comment panel
@@ -438,11 +488,13 @@
       if (fullBtn) fullBtn.classList.toggle("show", feedVideo.classList.contains("landscape"));
       feedDanmaku.load(d.series_id, vid, 180000);
       tryPlayFeed();
+      if (feedVideo.readyState < 2) showFeedSpin(it);
     } else {
       feedVideo.pause();
       feedVideo.classList.remove("playing");
       it.el.querySelector(".fi-scene").appendChild(feedVideo);
       resolveFeedPlay(d, vid);
+      showFeedSpin(it);
     }
     if (feedItems[i + 1]) prefetchFeed(feedItems[i + 1].d);
     if (feedItems[i + 2]) prefetchFeed(feedItems[i + 2].d);
@@ -688,8 +740,8 @@
   // Cache resolved play URLs so swiping to the next drama starts instantly
   // instead of waiting for /play/info (which caused the black flash).
   var srcCache = {};
-  function prefetchFeed(d) {
-    var vid = d.vid || (d.vid_list && d.vid_list[0]) || "";
+  function prefetchFeed(d, vidArg) {
+    var vid = vidArg || d.vid || (d.vid_list && d.vid_list[0]) || "";
     if (!vid || srcCache[vid]) return;
     var entry = srcCache[vid] = { loading: true };
     // prefetch=1: background priority inside the core, never competes with
@@ -708,16 +760,22 @@
     tryPlayFeed();
     feedDanmaku.clear();
     feedDanmaku.load(d.series_id, vid, 180000);
+    // Warm the next episode's URL so the auto-chain at "ended" skips the
+    // /play/info round trip (the feed twin is busy with the next drama).
+    var li = (d.vid_list || []).indexOf(vid);
+    if (li >= 0 && d.vid_list[li + 1]) prefetchFeed(d, d.vid_list[li + 1]);
   }
-  async function resolveFeedPlay(d, vid) {
+  async function resolveFeedPlay(d, vid, fresh) {
     var token = ++playToken;
     if (!vid) { feedVideo.removeAttribute("src"); return; }
-    var hit = srcCache[vid];
+    var hit = fresh ? null : srcCache[vid];
     if (hit && hit.path) { applyFeedSrc(d, vid, hit); return; }
     try {
       var info = (hit && hit.p) ? await hit.p.catch(function () { return null; }) : null;
       if (token !== playToken) return;
-      if (!info || !info.path) info = await getJSON("/api/v1/play/info", { series_id: d.series_id, vid: vid, quality: settings.quality, mode: "range", fallback: "1" });
+      if (!info || !info.path) info = await getJSON("/api/v1/play/info", fresh
+        ? { series_id: d.series_id, vid: vid, quality: settings.quality, mode: "range", fallback: "1", nc: "1" }
+        : { series_id: d.series_id, vid: vid, quality: settings.quality, mode: "range", fallback: "1" });
       if (token !== playToken) return;
       srcCache[vid] = { path: info.path, w: info.video_width || 0, h: info.video_height || 0 };
       applyFeedSrc(d, vid, srcCache[vid]);
@@ -748,9 +806,35 @@
     el.addEventListener("playing", function () {
       if (el !== feedVideo) return;
       el.classList.add("playing");
+      el.dataset.failedvid = "";
+      hideFeedSpin();
       notifyStartupReady(); // first visible frame → native splash may step aside
       var itm = feedItems[activeFeed] && feedItems[activeFeed].el;
       if (itm) itm.querySelector(".fi-play").classList.remove("show");
+    });
+    // Decode kick: Chromium throttles off-screen videos, so the preloaded
+    // twin would only start fetching once the swipe swaps it in. A muted
+    // micro-play warms the pipeline while the CURRENT drama still plays.
+    el.addEventListener("loadeddata", function () {
+      if (el === feedVideo || !el.dataset.previd) return;
+      var p = el.play();
+      if (p && p.then) p.then(function () { if (el !== feedVideo) el.pause(); }).catch(function () { });
+    });
+    el.addEventListener("pause", function () { if (el === feedVideo) hideFeedSpin(); });
+    // Signed play URLs expire. A srcCache hit from an early prefetch can be
+    // dead by the time the user swipes here → MEDIA_ERR_SRC_NOT_SUPPORTED
+    // stuck on the cover. Invalidate the stale entry and refetch once.
+    el.addEventListener("error", function () {
+      if (el !== feedVideo) return;
+      var it = feedItems[activeFeed];
+      if (!it) return;
+      var d = it.d;
+      var vid = d.vid || (d.vid_list && d.vid_list[0]) || "";
+      if (!vid || el.dataset.failedvid === vid) return; // one retry per vid
+      el.dataset.failedvid = vid;
+      delete srcCache[vid];
+      resolveFeedPlay(d, vid, true);
+      showFeedSpin(it);
     });
     el.addEventListener("timeupdate", function () {
       if (el !== feedVideo) return;
@@ -832,6 +916,7 @@
     var cur = list.indexOf(d.vid);
     var next = list[Math.min(list.length - 1, cur + 1)];
     d.vid = next;
+    if (list[cur + 2]) prefetchFeed(d, list[cur + 2]);
     resolveFeedPlay(d, next);
   }
 
@@ -854,6 +939,22 @@
       toast(on ? "已收藏" : "已取消收藏");
     } catch (e) { toast("收藏失败：" + (e.message || e)); }
   }
+  // Resume support: a short-lived map of series_id → last history entry,
+  // consulted when a drama is opened "from scratch" (no explicit episode or
+  // position), so reopening a series jumps to where the user left off.
+  var libCache = { t: 0, map: null };
+  async function historyMap() {
+    if (libCache.map && Date.now() - libCache.t < 20000) return libCache.map;
+    try {
+      var d = await getJSON("/api/v1/library", {});
+      var m = {};
+      (d.entries || []).forEach(function (e) {
+        if (e.drama && e.drama.series_id && e.last_played_at) m[e.drama.series_id] = e;
+      });
+      libCache = { t: Date.now(), map: m };
+    } catch (e) { }
+    return libCache.map || {};
+  }
   // ---------- player ----------
   var player = $("#player"), pScene = $("#p-scene"), pVideo = $("#p-video");
   var pd = { drama: null, eps: [], idx: 0, vid: "", info: null, token: 0 };
@@ -869,6 +970,7 @@
   var pDanmaku = makeDanmaku($("#p-danmaku-layer"), function () { return pVideo; });
   bindPVideo(pVideo);
   bindPVideo(pVideoB);
+  applyAV();
   var cinema = false, swipeUntil = 0;
 
   function epVid(i) {
@@ -879,6 +981,16 @@
   async function openPlayer(d, epIndex, resume, forceCinema) {
     epCache = {};
     resetPPreload();
+    // "Fresh" opens (no explicit episode/position) resume from history like
+    // the official app: jump to the last watched episode and seek to it.
+    if (epIndex === 0 && !resume && d.series_id) {
+      var he = (await historyMap())[d.series_id];
+      if (he && (he.position || 0) > 15 && (he.episode || 1) >= 1) {
+        epIndex = Math.max(0, (he.episode || 1) - 1);
+        resume = he.position;
+        setTimeout(function () { showTopTip("续播：第" + (he.episode || 1) + "集 · " + fmt(he.position), 2200); }, 700);
+      }
+    }
     pd.drama = d; pd.idx = Math.max(0, epIndex || 0);
     // The entry episode's vid is usually already known from the feed card, so
     // start its play/info now and overlap it with the series/detail fetch;
@@ -1103,7 +1215,10 @@
     if (!pd.drama || !pd.vid || !pVideo.currentTime) return;
     lastSave = Date.now();
     libraryOwner().then(function (oid) {
-      postJSON("/api/v1/library", { owner_id: oid, action: "history", drama: slimDrama(pd.drama), episode: (pd.eps[pd.idx] && pd.eps[pd.idx].index) || pd.idx + 1, video_id: pd.vid, position: Math.floor(pVideo.currentTime), duration: Math.floor(pVideo.duration || 0) }).catch(function () { });
+      var ep = (pd.eps[pd.idx] && pd.eps[pd.idx].index) || pd.idx + 1;
+      postJSON("/api/v1/library", { owner_id: oid, action: "progress", drama: slimDrama(pd.drama), episode: ep, video_id: pd.vid, position: Math.floor(pVideo.currentTime), duration: Math.floor(pVideo.duration || 0) }).catch(function () { });
+      // Keep the resume cache honest without refetching the whole library.
+      if (libCache.map) libCache.map[pd.drama.series_id] = { drama: pd.drama, episode: ep, position: Math.floor(pVideo.currentTime), last_played_at: Date.now() / 1000 };
     });
   }
 
@@ -1153,20 +1268,55 @@
     }, 240);
   }
 
-  // tap shows/hides controls; swipes switch episodes
+  // tap shows/hides controls (double tap = ±10s seek); center vertical swipe
+  // switches episodes; edge vertical drags adjust brightness (left) / volume
+  // (right), like mainstream players. Single-tap hide waits 260ms so a second
+  // tap can cancel it and seek instead.
   (function () {
-    var start = null, wasHidden = false;
+    var start = null, wasHidden = false, lastTap = 0, lastTapX = 0, singleTimer = null;
+    function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+    function doubleSeek(x) {
+      if (!pVideo.getAttribute("src") || !pVideo.duration) return;
+      var dir = x < (pScene.clientWidth || 1) / 2 ? -10 : 10;
+      var t = clamp(pVideo.currentTime + dir, 0, pVideo.duration - 1);
+      if (t === pVideo.currentTime) return;
+      pVideo.currentTime = t;
+      showTopTip(dir > 0 ? "快进 10 秒" : "回退 10 秒", 900);
+    }
     player.addEventListener("touchstart", function () { clearTimeout(hideTimer); }, { passive: true, capture: true });
     pScene.addEventListener("touchstart", function (e) {
       wasHidden = player.classList.contains("hide-ui");
       if (wasHidden && !cinema) armHide();
-      start = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now() } : null;
+      if (e.touches.length !== 1) { start = null; return; }
+      var W = pScene.clientWidth || 1, zx = e.touches[0].clientX / W;
+      start = {
+        x: e.touches[0].clientX, y: e.touches[0].clientY, t: Date.now(),
+        zone: zx < 0.12 ? "b" : zx > 0.88 ? "v" : "m", drag: null,
+        vol: settings.volume == null ? 1 : settings.volume,
+        bri: settings.brightness || 1
+      };
     }, { passive: true });
     // Live swipe hint: show the target action while the finger is still down.
     pScene.addEventListener("touchmove", function (e) {
       if (!start || e.touches.length !== 1) { pHud.classList.remove("on"); return; }
       var p = e.touches[0], dx = p.clientX - start.x, dy = p.clientY - start.y;
       var adx = Math.abs(dx), ady = Math.abs(dy), txt = "";
+      if (start.zone !== "m" && ady > adx * 1.2 && ady >= 24) {
+        // Edge vertical drag: brightness (left) / volume (right).
+        start.drag = start.zone;
+        var r = (start.y - p.clientY) / ((pScene.clientHeight || 1) * 0.6);
+        if (start.drag === "v") {
+          settings.volume = clamp(start.vol + r, 0, 1);
+          txt = "音量 " + Math.round(settings.volume * 100) + "%";
+        } else {
+          settings.brightness = clamp(start.bri + r, 0.2, 1);
+          txt = "亮度 " + Math.round(settings.brightness * 100) + "%";
+        }
+        applyAV();
+        pHud.textContent = txt;
+        pHud.classList.add("on");
+        return;
+      }
       if (Math.max(adx, ady) >= 24) {
         if (ady > adx * 1.2) {
           var t = pd.idx + (dy < 0 ? 1 : -1);
@@ -1192,6 +1342,7 @@
       var p = e.changedTouches[0];
       var dx = p.clientX - start.x, dy = p.clientY - start.y;
       var adx = Math.abs(dx), ady = Math.abs(dy);
+      if (start.drag) { saveSettings(); start = null; return; }   // volume/brightness gesture consumed
       if (Math.max(adx, ady) > 60 && Date.now() - start.t < 800) {
         e.stopPropagation();
         swipeUntil = Date.now() + 500;
@@ -1202,8 +1353,21 @@
       }
       if (Math.max(adx, ady) < 12 && Date.now() > swipeUntil) {
         if (e.target.closest("button, input, .p-bottom, .p-top, .p-center-play, .p-toggle")) { armHide(); start = null; return; }
-        if (!wasHidden) player.classList.add("hide-ui");
-        else if (cinema) armHide();
+        var now = Date.now();
+        if (now - lastTap < 300 && Math.abs(p.clientX - lastTapX) < 100) {
+          lastTap = 0;
+          if (singleTimer) { clearTimeout(singleTimer); singleTimer = null; }
+          doubleSeek(p.clientX);
+        } else {
+          lastTap = now; lastTapX = p.clientX;
+          var hidden0 = wasHidden;
+          if (singleTimer) clearTimeout(singleTimer);
+          singleTimer = setTimeout(function () {
+            singleTimer = null;
+            if (!hidden0) player.classList.add("hide-ui");
+            else if (cinema) armHide();
+          }, 260);
+        }
       } else armHide();
       start = null;
     }, true);
@@ -1874,8 +2038,9 @@
     } catch (e) { }
   }
   speedLabel();
-  Promise.all([loadSettingsFromCore(), loadFeed()]).then(function () {
-    activate(0);
+  loadSettingsFromCore();
+  bootFeedCache().then(function () { return loadFeed(); }).then(function () {
+    if (activeFeed < 0 && feedItems.length) activate(0);
     setTimeout(notifyStartupReady, 4500);
   });
   // unmute feed audio on first user tap
@@ -1902,4 +2067,25 @@
   // MainActivity calls this instead of showing the old exit dialog: the first
   // back swipe shows a centered top pill, a second one within 3s exits.
   window.HongguoTV.showExitHint = function () { showTopTip("再左滑一次退出应用", 2600); };
+  // Audio focus (native): incoming call / headphone unplug pauses whatever is
+  // actually playing; regaining focus resumes only that same surface.
+  var focusPaused = null;
+  function avPause() {
+    if (player.classList.contains("open")) { if (!pVideo.paused) { pVideo.pause(); return "p"; } return null; }
+    if (!feedVideo.paused) { feedVideo.pause(); feedWantPlay = false; return "f"; }
+    return null;
+  }
+  function avResume(which) {
+    if (which === "p") playP();
+    else if (which === "f") tryPlayFeed();
+  }
+  window.HongguoTV.audioFocus = function (gained) {
+    if (gained) { avResume(focusPaused); focusPaused = null; }
+    else focusPaused = avPause();
+  };
+  // MainActivity fires these on every pause/resume; without them the call
+  // throws a TypeError and background playback relies on WebView internals.
+  var bgPaused = null;
+  window.HongguoTV.pauseForBackground = function () { bgPaused = avPause(); };
+  window.HongguoTV.resumeFromBackground = function () { avResume(bgPaused); bgPaused = null; };
 })();

@@ -46,6 +46,8 @@ input,textarea{user-select:auto;-webkit-user-select:auto}
 .fi-scene .bg{position:absolute;inset:0;background-size:cover;background-position:center;filter:saturate(1.05);opacity:0;transition:opacity .4s}
 .fi-scene .bg.on{opacity:1}
 .fi-video.landscape{object-fit:contain}
+.fi-spin{position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:3px solid rgba(255,255,255,.22);border-top-color:#fff;animation:fi-spin-rot .8s linear infinite;z-index:5;pointer-events:none}
+@keyframes fi-spin-rot{to{transform:rotate(360deg)}}
 .fi-top{position:absolute;top:0;left:0;right:0;height:64px;display:flex;align-items:center;justify-content:space-between;padding:26px 14px 0;z-index:10}
 .fi-tabs{display:flex;gap:18px;font-size:15px;color:rgba(255,255,255,.55)}
 .fi-tabs span{padding-bottom:4px;transition:color .25s}
