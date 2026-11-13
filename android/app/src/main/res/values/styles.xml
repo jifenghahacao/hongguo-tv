@@ -6,6 +6,12 @@
         <item name="android:colorAccent">#F35D7B</item>
         <item name="android:navigationBarColor">#0C0D12</item>
         <item name="android:statusBarColor">#0C0D12</item>
+        <item name="android:windowBackground">#0C0D12</item>
+        <!-- Android 12+ system splash: same dark background and the animated
+             startup logo, so the splash blends into the in-app loading panel.
+             Ignored on older platforms. -->
+        <item name="android:windowSplashScreenBackground">#0C0D12</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/startup_loading</item>
     </style>
     <style name="AppTheme" parent="AppThemeBase" />
 </resources>

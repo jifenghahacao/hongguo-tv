@@ -1,7 +1,6 @@
 package rocks.aston.hongguotv;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Rect;
 import android.os.Build;
@@ -32,6 +31,7 @@ import android.webkit.WebResourceRequest;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 import android.widget.Button;
 import android.widget.ImageView;
 import java.net.HttpURLConnection;
@@ -50,7 +50,7 @@ public class MainActivity extends Activity {
     private volatile boolean activityForeground;
     private volatile boolean playbackPageActive;
     private boolean playbackActive;
-    private AlertDialog exitDialog;
+    private long lastExitHintAt;
     private boolean keyboardVisible;
     private final InputEditingState inputEditingState = new InputEditingState();
     private final SearchNavigationState searchNavigationState = new SearchNavigationState();
@@ -139,6 +139,65 @@ public class MainActivity extends Activity {
                 return DeviceDiagnostics.isTelevision(MainActivity.this);
             }
         }, "HongguoTVDiagnostics");
+        // Phones keep a portrait layout by default; the sideways device sensor
+        // must not flip the UI. Landscape happens only when the user taps the
+        // "全屏观看" button, which drives the cinema bridge below.
+        if (!DeviceDiagnostics.isTelevision(this)) {
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+        }
+        webView.addJavascriptInterface(new Object() {
+            @JavascriptInterface public void setLandscape(final boolean landscape) {
+                if (destroyed) return;
+                runOnUiThread(() -> setRequestedOrientation(landscape
+                    ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                    : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT));
+            }
+        }, "HongguoScreen");
+        // DLNA discovery (SSDP) uses UDP multicast, which Android drops unless
+        // a MulticastLock is held. The WebView asks for it while the cast
+        // sheet is open and releases it on close.
+        final android.net.wifi.WifiManager wifiMgr =
+                (android.net.wifi.WifiManager) getApplicationContext().getSystemService(android.content.Context.WIFI_SERVICE);
+        final android.net.wifi.WifiManager.MulticastLock castMcastLock =
+                wifiMgr.createMulticastLock("hongguo-cast");
+        castMcastLock.setReferenceCounted(false);
+        webView.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void lock(boolean on) {
+                try {
+                    if (on && !destroyed) castMcastLock.acquire();
+                    else castMcastLock.release();
+                } catch (Exception ignored) {
+                }
+            }
+
+            // Go's net.Interfaces() is blocked by SELinux on Android, so the
+            // WebView passes the Wi-Fi IPv4 down for the cast LAN server URL.
+            @JavascriptInterface
+            public String lanIP() {
+                try {
+                    String fallback = "";
+                    java.util.Enumeration<java.net.NetworkInterface> ifs =
+                            java.net.NetworkInterface.getNetworkInterfaces();
+                    while (ifs != null && ifs.hasMoreElements()) {
+                        java.net.NetworkInterface nif = ifs.nextElement();
+                        if (!nif.isUp() || nif.isLoopback()) continue;
+                        java.util.Enumeration<java.net.InetAddress> addrs = nif.getInetAddresses();
+                        while (addrs.hasMoreElements()) {
+                            java.net.InetAddress a = addrs.nextElement();
+                            if (a.isLoopbackAddress() || a.getAddress().length != 4) continue;
+                            String ip = a.getHostAddress();
+                            if (ip.startsWith("169.254.")) continue;
+                            if (nif.getName().startsWith("wlan")) return ip;
+                            if (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.")) fallback = ip;
+                        }
+                    }
+                    return fallback;
+                } catch (Exception e) {
+                    return "";
+                }
+            }
+        }, "HongguoTVCast");
         webView.addJavascriptInterface(new PlaybackPreferences(this), "HongguoTVPreferences");
         webView.addJavascriptInterface(new InputBridge(), "HongguoTVInput");
         webView.addJavascriptInterface(new HomeChannelBridge(), "HongguoTVHome");
@@ -257,13 +316,6 @@ public class MainActivity extends Activity {
         startupMessage.setTextSize(22);
         startupMessage.setGravity(Gravity.CENTER);
         startupPanel.addView(startupMessage, new LinearLayout.LayoutParams(-2, -2));
-        TextView versionLabel = new TextView(this);
-        versionLabel.setText("版本 " + BuildConfig.VERSION_NAME);
-        versionLabel.setTextColor(0xFFA9A9B3);
-        versionLabel.setTextSize(14);
-        versionLabel.setGravity(Gravity.CENTER);
-        versionLabel.setPadding(0, 16, 0, 16);
-        startupPanel.addView(versionLabel, new LinearLayout.LayoutParams(-2, -2));
         startupRetry = new Button(this);
         startupRetry.setText("重试");
         startupRetry.setOnClickListener(view -> {
@@ -309,7 +361,6 @@ public class MainActivity extends Activity {
         routedVerticalKeys = routedHorizontalKeys = routedConfirmKeys = 0;
         if (startupThread != null) { startupThread.interrupt(); startupThread = null; }
         if (appUpdater != null) { appUpdater.destroy(); appUpdater = null; }
-        if (exitDialog != null) { exitDialog.dismiss(); exitDialog = null; }
         InputMethodManager keyboard = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         if (keyboard != null) keyboard.hideSoftInputFromWindow(getWindow().getDecorView().getWindowToken(), 0);
         NativePlayerAdapter retiredPlayer = playerBridge;
@@ -368,7 +419,8 @@ public class MainActivity extends Activity {
 
     private void waitForCore() {
         if (startupThread != null && startupThread.isAlive()) return;
-        startupMessage.setText("正在启动红果短剧…");
+        // Normal startup shows only the animated logo; text appears on failure.
+        startupMessage.setText("");
         startupRetry.setVisibility(View.GONE);
         startupPanel.setVisibility(View.VISIBLE);
         if (activityForeground) startupAnimation.start();
@@ -415,7 +467,9 @@ public class MainActivity extends Activity {
                 if (coreReady != null) {
                     if (coreReady != CoreService.endpoint()) { showStartupFailure(); return; }
                     coreUrl = coreReady.url;
-                    webView.loadUrl(coreUrl);
+                    // Phones get the immersive mobile UI; TVs keep the remote-driven app.
+                    webView.loadUrl(DeviceDiagnostics.isTelevision(MainActivity.this)
+                        ? coreUrl : coreUrl + "/mobile.html");
                     grantWebViewFocus(false);
                 } else { showStartupFailure(); startupMessage.setText(failureMessage); }
             });
@@ -736,33 +790,36 @@ public class MainActivity extends Activity {
     private void requestPageBack() {
         if (backPending || isFinishing()) return;
         if (appUpdater != null && appUpdater.back()) return;
-        if (exitDialog != null && exitDialog.isShowing()) {
-            exitDialog.cancel();
-            return;
-        }
         if (webView == null) {
-            showExitConfirmation();
+            confirmExitApp();
             return;
         }
         backPending = true;
         webView.evaluateJavascript("!!(window.HongguoTV && window.HongguoTV.requestBack())", result -> {
             backPending = false;
-            if (!rendererGone && !isFinishing() && !isDestroyed() && !"true".equals(result)) showExitConfirmation();
+            if (!rendererGone && !isFinishing() && !isDestroyed() && !"true".equals(result)) confirmExitApp();
         });
     }
 
-    private void showExitConfirmation() {
-        exitDialog = new AlertDialog.Builder(this)
-                .setTitle("退出红果短剧？")
-                .setNegativeButton("取消", (dialog, which) -> dialog.dismiss())
-                .setPositiveButton("退出", (dialog, which) -> {
-                    stopCoreService();
-                    finish();
-                })
-                .create();
-        exitDialog.setOnShowListener(dialog -> exitDialog.getButton(AlertDialog.BUTTON_NEGATIVE).requestFocus());
-        exitDialog.setOnDismissListener(dialog -> scheduleFullscreen());
-        exitDialog.show();
+    // Double-swipe exit: the first back gesture shows a centered top pill in
+    // the web UI; a second back within 3 seconds exits immediately. This
+    // replaces the old "exit?" confirmation dialog.
+    private void confirmExitApp() {
+        long now = SystemClock.uptimeMillis();
+        if (now - lastExitHintAt < 3000) {
+            lastExitHintAt = 0;
+            stopCoreService();
+            finish();
+            return;
+        }
+        lastExitHintAt = now;
+        if (webView != null && pageReady && !rendererGone) {
+            webView.evaluateJavascript("window.HongguoTV && window.HongguoTV.showExitHint && window.HongguoTV.showExitHint()", null);
+        } else {
+            Toast tip = Toast.makeText(this, "再左滑一次退出应用", Toast.LENGTH_SHORT);
+            tip.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 0, 140);
+            tip.show();
+        }
     }
 
     @Override

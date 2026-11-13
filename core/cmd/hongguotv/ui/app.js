@@ -602,7 +602,18 @@
   }
   function createListPager(endpoint, container, selector, id, render, metadata, prefetchPages) {
     var pager = HongguoPagination.create({
-      request: function (params, signal) { var requestParams = Object.assign({}, params); if (endpoint === '/api/v1/follow') delete requestParams.shown; return fetchData((pager.endpoint || endpoint) + '?' + new URLSearchParams(requestParams).toString(), signal ? { signal: signal } : {}); },
+      request: function (params, signal) {
+        var requestParams = Object.assign({}, params);
+        if (endpoint === '/api/v1/follow') delete requestParams.shown;
+        // The feed's page zero is the same popular batch for this device on
+        // every launch. Start each session from a random offset with a fresh
+        // session id so different dramas surface first, like the official app.
+        if (endpoint === '/api/v1/lists/recommend' && !requestParams.session_id) {
+          requestParams.session_id = String(Math.floor(Math.random() * 9e14) + 1e14);
+          requestParams.offset = String(6 * Math.floor(Math.random() * 11));
+        }
+        return fetchData((pager.endpoint || endpoint) + '?' + new URLSearchParams(requestParams).toString(), signal ? { signal: signal } : {});
+      },
       clear: function () { if (container) renderMessage(container, 'list-empty', uiText('common.loading', '正在加载…')); },
       render: function (items, append, p) {
         if (items.length && container) container.querySelectorAll('.list-empty, .calendar-empty, .search-result-empty, .rank-empty').forEach(function (node) { node.remove(); });
@@ -2866,7 +2877,12 @@
     try {
       var value = androidShell && window.HongguoTVPreferences ? window.HongguoTVPreferences.read() : localStorage.getItem('hongguo-tv-playback');
       var saved = JSON.parse(value || '{}');
-      if (playbackSpeeds.indexOf(saved.speed) >= 0) playbackPreferences.speed = saved.speed;
+      // Phones start every session at 1x like the official app; the saved
+      // speed is still honoured on TV where remote users expect persistence.
+      var isTelevisionDevice = !!(window.HongguoTVDiagnostics &&
+        typeof window.HongguoTVDiagnostics.isTelevision === 'function' &&
+        window.HongguoTVDiagnostics.isTelevision() === true);
+      if ((!androidShell || isTelevisionDevice) && playbackSpeeds.indexOf(saved.speed) >= 0) playbackPreferences.speed = saved.speed;
       if (Number.isFinite(saved.volume) && saved.volume >= 0 && saved.volume <= 100) playbackPreferences.volume = saved.volume;
       if (/^[1-9][0-9]{2,3}P$/.test(saved.quality || '')) playbackPreferences.quality = saved.quality;
       playbackPreferences.prefetch_mode = HongguoEpisodePrefetchSettings.normalize(saved.prefetch_mode);
@@ -3483,7 +3499,7 @@
     pendingAccountHomeProgram = null;
     startPlayer({ series_id: program.series_id, title: program.title, intro: '', cover: '' }, null, { cardLaunch: !!program.cardLaunch });
   }
-  window.HongguoTV = { prepareExit: function () { pauseForBackground(); return libraryQueue.catch(function () {}); }, remoteKey: remoteKey, requestBack: handleBack, mediaCommand: handleMediaCommand, togglePlaybackCommandMenu: togglePlaybackCommandMenu, pauseForBackground: pauseForBackground, resumeFromBackground: resumeFromBackground, desktopFullscreenChanged: desktopFullscreenChanged, canShowAppUpdate: canShowAppUpdate, finishAccountEditing: function () {}, finishSearchEditing: function () { var current = typeof androidShell !== 'undefined' && androidShell ? remoteFocusTarget() || document.activeElement : document.activeElement; if (current === searchInput) goFocus(searchSuggestionOpen ? firstVisible('.search-suggestion') || firstSearchAction() || firstSearchFilter() : firstSearchAction() || firstSearchFilter()); }, openHomeProgram: openHomeProgram };
+  window.HongguoTV = { prepareExit: function () { pauseForBackground(); return libraryQueue.catch(function () {}); }, remoteKey: remoteKey, requestBack: handleBack, mediaCommand: handleMediaCommand, togglePlaybackCommandMenu: togglePlaybackCommandMenu, pauseForBackground: pauseForBackground, resumeFromBackground: resumeFromBackground, desktopFullscreenChanged: desktopFullscreenChanged, canShowAppUpdate: canShowAppUpdate, finishAccountEditing: function () {}, finishSearchEditing: function () { var current = typeof androidShell !== 'undefined' && androidShell ? remoteFocusTarget() || document.activeElement : document.activeElement; if (current === searchInput) goFocus(searchSuggestionOpen ? firstVisible('.search-suggestion') || firstSearchAction() || firstSearchFilter() : firstSearchAction() || firstSearchFilter()); }, openHomeProgram: openHomeProgram, switchEpisode: function (step) { return switchPlayerEpisode(step, true); } };
 
   function miniPlayerState() {
     var video = document.getElementById('hero-video');

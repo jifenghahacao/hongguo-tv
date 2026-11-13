@@ -1,0 +1,303 @@
+/* Phone adaptation layer (V2, Hongguo-app style). Loaded after app.css/compat.css;
+   only active on narrow viewports so TV/desktop layouts are untouched. */
+@media (max-width: 760px), (max-height: 480px) {
+  /* ---- Shell: TV minimum off, left rail becomes a bottom tab bar ---- */
+  .app-shell { min-width: 0; min-height: 0; }
+  .sidebar {
+    position: fixed; z-index: 8; right: 0; bottom: 0; left: 0;
+    display: flex; flex: none; flex-direction: row; align-items: stretch;
+    width: 100%; height: 48px; min-height: 0; padding: 0; overflow: hidden;
+    border-right: 0; border-top: 1px solid rgba(255,255,255,.08);
+    background: #15151c;
+  }
+  .brand { display: none; }
+  /* Promote every nav button to a direct child of the bar so all tabs share width. */
+  .side-nav, .sidebar-bottom { display: contents; }
+  .side-item {
+    flex: 1 1 0; min-width: 0; width: auto; min-height: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 0; padding: 6px 2px; border-radius: 0; font-size: 12px; text-align: center;
+  }
+  /* Icons only: the tab labels are dropped to keep the bar slim. */
+  .side-item > span:not(.side-notification-dot), .app-shell.sidebar-icons .side-item > span:not(.side-notification-dot) { display: none; }
+  .side-item.is-active { background: transparent; }
+  .side-item.is-focused, .side-item:focus:not(.pointer-focus-muted) { transform: none; box-shadow: inset 0 0 0 2px #fff; }
+  .side-icon { flex-basis: auto; width: 24px; height: 24px; margin: 0; }
+  .side-notification-dot { display: block; position: absolute; top: 6px; left: calc(50% + 10px); margin: 0; }
+  .watching-return-wrap { display: none; }
+  .main-surface { width: 100% !important; }
+
+  /* ---- Top bar ---- */
+  .top-bar { min-height: 52px; padding: 8px 12px; }
+  .page-context { width: auto; min-width: 44px; font-size: 14px; }
+  .channel-tabs { gap: 2px; overflow-x: auto; scrollbar-width: none; }
+  .channel-tabs::-webkit-scrollbar { display: none; }
+  .channel-tab { min-width: 0; padding: 7px 12px; font-size: 14px; }
+  .top-status { width: auto; font-size: 11px; white-space: nowrap; }
+  .top-status .status-icon { margin-right: 3px; }
+
+  /* ---- Scrolling pages sit between top bar and tab bar ---- */
+  .search-page, .page-workspace { top: 52px; bottom: 48px; padding: 10px 14px 24px; }
+  .page-placeholder { top: 52px; bottom: 48px; }
+  .search-heading-row { flex-direction: column; gap: 14px; margin-bottom: 14px; }
+  .search-heading-row h1 { margin-bottom: 4px; font-size: 24px; }
+  .page-workspace h1 { font-size: 24px; }
+  .search-input-wrap { flex: 1 1 100%; width: auto; }
+  .search-scan { display: none; }
+  .search-result-head { padding: 14px 0 10px; }
+  .search-result-head strong { font-size: 17px; }
+
+  /* ---- Poster grids: big 2-column cards like the reference app ---- */
+  .search-results, .new-grid, .library-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 14px; }
+  .search-result-card { padding-bottom: 4px; }
+  .search-result-card-title { padding: 12px 2px 2px; font-size: 16px; }
+  .search-result-card-meta { padding: 0 2px; font-size: 13px; }
+  .follow-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .detail-related-list { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .actor-works-list { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+
+  /* ---- Rank page ---- */
+  .rank-heading-row, .new-heading-row { flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+  .rank-tabs, .new-tabs { gap: 14px; overflow-x: auto; scrollbar-width: none; }
+  .rank-tabs::-webkit-scrollbar, .new-tabs::-webkit-scrollbar { display: none; }
+  .rank-tab, .new-tab { min-height: 36px; font-size: 15px; white-space: nowrap; }
+  .rank-layout { flex-direction: column; gap: 12px; }
+  .rank-subnav { flex: none; flex-direction: row; width: 100%; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+  .rank-subnav::-webkit-scrollbar { display: none; }
+  .rank-subtab { min-height: 36px; padding: 0 14px; font-size: 14px; white-space: nowrap; }
+  .rank-row { grid-template-columns: 26px 76px minmax(0, 1fr) auto; gap: 10px; min-height: 100px; padding: 8px 6px 8px 0; }
+  .rank-row-rank { font-size: 20px; }
+  .rank-row-image { width: 76px; height: 100px; }
+  .rank-row-title { font-size: 15px; }
+  .rank-row-intro { display: none; }
+  .rank-row-heat { font-size: 13px; }
+  .rank-row-side { gap: 6px; }
+  .rank-row-play { min-height: 32px; padding: 0 10px; font-size: 13px; }
+  .rank-row-detail { display: none; }
+  .rank-period { padding: 6px 12px; font-size: 13px; }
+  .radar-official-table .radar-table-head, .radar-official-table .radar-row,
+  .radar-growth-table .radar-table-head, .radar-growth-table .radar-row { min-width: 0; font-size: 12px; }
+
+  /* ---- Hero / player overlay: lift the bottom stack above the tab bar ---- */
+  .hero-top-copy { top: 60px; left: 14px; }
+  .hero-top-copy strong { max-width: 56vw; font-size: 14px; }
+  .hero-top-copy span { font-size: 12px; }
+  .hero-top-right { top: 60px; right: 12px; font-size: 11px; }
+  .hero-top-right strong { font-size: 12px; }
+  .hero-placeholder { top: 22%; left: 14px; max-width: 80%; }
+  .hero-placeholder h1 { font-size: 24px; }
+  .hero-placeholder p { font-size: 13px; }
+  .hero-title { left: 14px; bottom: 250px; max-width: 62%; font-size: 18px; }
+  .hero-episode { left: 14px; bottom: 224px; font-size: 13px; }
+  .hero-summary { left: 14px; bottom: 184px; max-width: 62%; font-size: 12px; }
+  /* Like / favorite / comment rail is not shown on phones. */
+  .right-actions { display: none; }
+  .bottom-controls { right: 12px; bottom: 58px; left: 12px; gap: 6px; }
+  .playback-timeline, .playback-buttons { gap: 8px; }
+  /* Portrait: the TV button row is replaced by the injected 观看完整剧情 bar. */
+  .playback-buttons { display: none; }
+  #control-progress { touch-action: none; }
+  /* No centre play/pause cue: tapping the picture itself toggles playback. */
+  .playback-feedback-center { display: none; }
+  .playback-utility-group, .playback-utility-group > * + * { gap: 8px; margin-left: 8px; }
+  .control-button { min-height: 38px; padding: 6px 9px; font-size: 13px; border-radius: 6px; }
+  .control-content > svg { flex-basis: 16px; width: 16px; height: 16px; margin-right: 5px; }
+  .catalog-ribbon { right: 14px; bottom: 154px; left: 14px; }
+  .catalog-card { flex-basis: 108px; width: 108px; min-height: 148px; }
+  .catalog-card-image { height: 84px; }
+  .catalog-card-title { font-size: 12px; }
+  .end-recommendations-panel { padding: 20px 14px 14px; }
+  .end-recommendations-heading h2 { font-size: 18px; }
+  .end-recommendation-card { flex-basis: 108px; width: 108px; margin-right: 12px; }
+  .end-recommendation-card .drama-poster { height: 152px; }
+  .end-recommendation-card strong { font-size: 14px; }
+
+  /* ---- Detail page: full-screen, like the reference app ---- */
+  .detail-modal { padding: 0; background: #0d0d12; }
+  .detail-dialog { width: 100%; max-width: none; height: 100%; max-height: none; border: 0; border-radius: 0; background: #0d0d12; }
+  .detail-header { gap: 12px; min-height: 0; padding: 12px 14px; }
+  .detail-cover { flex-basis: 64px; width: 64px; height: 92px; }
+  .detail-intro { font-size: 13px; }
+  .detail-header-actions { gap: 6px; }
+  .detail-header-action { min-width: 64px; min-height: 36px; padding: 0 8px; font-size: 13px; }
+  .detail-close { flex-basis: 40px; min-width: 40px; min-height: 40px; margin: 4px 0 0; padding: 0 10px; font-size: 22px; }
+  .detail-cast { flex-basis: auto; padding: 6px 14px; }
+  .detail-tabs { gap: 12px; padding: 4px 14px 0; overflow-x: auto; scrollbar-width: none; }
+  .detail-tabs::-webkit-scrollbar { display: none; }
+  .detail-tab { min-height: 40px; padding: 0 4px; font-size: 16px; white-space: nowrap; }
+  .detail-progress { padding: 12px 14px 8px; font-size: 14px; }
+  .detail-retry { margin: 0 14px 14px; }
+  .detail-episodes { height: auto; max-height: none; padding: 10px 14px 24px; }
+  .detail-episode { flex: 0 0 calc((100% - 40px) / 6); height: 42px; font-size: 14px; }
+  .detail-series-panel { height: auto; max-height: none; padding: 8px 14px 20px; }
+  .detail-reviews-panel, .detail-related-panel { padding: 12px 14px 24px; }
+  .detail-cast-modal { padding: 14px; }
+  .detail-cast-dialog { width: 100%; max-height: 86vh; padding: 14px; }
+  .detail-cast-all { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  /* Opening 选集 from the player becomes a full-screen episode page instead
+     of the TV side drawer, so the video is never half-covered. */
+  .detail-modal.is-playback-drawer { left: 0; display: grid; width: 100%; padding: 0; background: #0d0d12; pointer-events: auto; }
+  .detail-modal.is-playback-drawer .detail-dialog { width: 100%; min-width: 0; max-width: none; height: 100%; max-height: none; }
+  .detail-modal.is-playback-drawer .detail-cover { display: block; }
+  .detail-modal.is-playback-drawer .detail-header { align-items: center; }
+  .detail-modal.is-playback-drawer .detail-title-row { display: flex; align-items: center; justify-content: space-between; }
+  /* Back control sits at the top-left like the official episode page. */
+  .detail-header { position: relative; }
+  .detail-close { order: -1; align-self: flex-start; }
+
+  /* ---- Other modals ---- */
+  .core-connection-dialog { width: 100%; padding: 16px; }
+  .search-scan-dialog { width: 100%; }
+  .support-methods { flex-direction: column; }
+  .support-card + .support-card { margin-top: 16px; margin-left: 0; }
+  .support-qr-frame { height: 260px; }
+
+  /* ---- Settings / account / misc headings ---- */
+  .follow-heading, .library-heading-row { flex-wrap: wrap; gap: 10px; }
+  .library-heading-row h1 { font-size: 24px; }
+  .follow-tabs, .library-tabs { gap: 14px; overflow-x: auto; scrollbar-width: none; }
+  .follow-tabs::-webkit-scrollbar, .library-tabs::-webkit-scrollbar { display: none; }
+  .filter-row { flex-wrap: wrap; }
+  .filter-row strong { flex-basis: 100%; }
+  .publication-row { gap: 12px; padding: 12px; min-height: 0; }
+  .publication-row > img { flex-basis: 66px; width: 66px; height: 92px; }
+  .publication-copy > strong { font-size: 17px; }
+  .publication-action { min-width: 84px; min-height: 40px; padding: 8px 14px; font-size: 15px; }
+  .notification-popup { width: calc(100% - 24px); right: 12px; bottom: 60px; }
+
+  /* ---- Overrides for the high-specificity html.tv-shell rules in compat.css.
+     The Android WebView shell adds tv-shell even on phones. ---- */
+  html.tv-shell .side-item { min-height: 0; padding: 6px 2px; font-size: 12px; }
+  html.tv-shell .side-icon { flex-basis: auto; width: 26px; height: 26px; }
+  html.tv-shell .page-context { font-size: 14px; }
+  html.tv-shell .channel-tab { font-size: 14px; }
+  html.tv-shell .top-status { font-size: 11px; }
+  html.tv-shell .hero-top-copy strong { font-size: 14px; }
+  html.tv-shell .hero-top-copy span { font-size: 12px; }
+  html.tv-shell .hero-top-right { font-size: 11px; }
+  html.tv-shell .hero-top-right strong { font-size: 12px; }
+  html.tv-shell .hero-rank-badge { font-size: 12px; }
+  html.tv-shell .hero-title { font-size: 18px; }
+  html.tv-shell .hero-episode { font-size: 13px; }
+  html.tv-shell .hero-summary { max-height: 42px; font-size: 12px; }
+  html.tv-shell .catalog-heading { font-size: 16px; }
+  html.tv-shell .catalog-card-title { font-size: 12px; }
+  html.tv-shell .catalog-card-meta { font-size: 11px; }
+  html.tv-shell .search-result-card-title,
+  html.tv-shell .new-card-title,
+  html.tv-shell .library-card-title { font-size: 16px; }
+  html.tv-shell .search-result-card-meta,
+  html.tv-shell .new-card-meta,
+  html.tv-shell .library-card-meta { font-size: 13px; }
+  html.tv-shell .search-suggestion-name { font-size: 15px; }
+  html.tv-shell .new-filter, html.tv-shell .rank-view-tab { font-size: 15px; }
+  html.tv-shell .rank-row-title { font-size: 15px; }
+  html.tv-shell .rank-row-meta, html.tv-shell .rank-row-intro { font-size: 12px; }
+  html.tv-shell .rank-row-heat { font-size: 13px; }
+  html.tv-shell .radar-title { font-size: 20px; }
+  html.tv-shell .radar-row, html.tv-shell .radar-table-head { font-size: 12px; }
+  html.tv-shell .radar-rank { font-size: 14px; }
+
+  /* ---- Cinema (fullscreen) playback: video fills the screen, controls hug
+     the bottom edge like the official app. ---- */
+  .app-shell.is-cinema .top-bar { display: none; }
+  .app-shell.is-cinema .bottom-controls { right: 10px; bottom: 12px; left: 10px; gap: 10px; }
+  /* The TV icon row is dropped; the timeline drops into its place and the
+     inline cinema controls (speed / quality / danmaku / exit) live in the
+     injected control row instead. */
+  .app-shell.is-cinema .playback-buttons { display: none; }
+
+  /* Speed / quality panels open as a right-side sheet like the official app. */
+  .app-shell.is-cinema .player-options:not(.is-composer):not(.is-diagnostics) {
+    position: fixed; z-index: 30; top: 0; right: 0; bottom: 0; left: auto;
+    display: flex; flex-direction: column; align-items: stretch; justify-content: center;
+    width: min(46%, 300px); padding: 16px 18px; box-sizing: border-box;
+    border: 0; border-radius: 0; background: rgba(16, 16, 22, .92); box-shadow: none;
+  }
+  .app-shell.is-cinema .player-options.is-hidden { display: none; }
+  .app-shell.is-cinema .player-options .player-options-heading,
+  .app-shell.is-cinema .player-options #player-options-message { display: none; }
+  .app-shell.is-cinema #player-options-list { display: flex; flex-direction: column; gap: 2px; }
+  .app-shell.is-cinema #player-options-list .player-option { min-height: 46px; background: transparent; border-radius: 0; color: #d9d9e2; font-size: 16px; }
+  .app-shell.is-cinema #player-options-list .player-option.is-selected { color: #fff; background: rgba(255, 255, 255, .16); border-radius: 23px; }
+  .app-shell.is-cinema .hero-title { top: 10px; bottom: auto; }
+  .app-shell.is-cinema .hero-episode { top: 38px; bottom: auto; }
+  .app-shell.is-cinema .hero-summary { display: none; }
+  .app-shell.is-cinema .catalog-ribbon { display: none; }
+  .app-shell.is-cinema .hero-top-copy, .app-shell.is-cinema .hero-top-right { display: none; }
+
+  /* ---- Account page: the injected header/banner/grid replaces the TV heading,
+     and the login card stacks in one column. ---- */
+  .account-heading { display: none; }
+  .account-layout { flex-direction: column; gap: 14px; margin-top: 0; }
+  .account-card, .account-page .settings { padding: 14px; }
+  .account-card h2, .account-page .settings h2 { font-size: 16px; }
+  html.tv-shell .account-card h2, html.tv-shell .account-page .settings h2 { font-size: 16px; }
+}
+
+/* Landscape phones share the bottom bar but need a shorter hero stack. */
+@media (max-width: 900px) and (max-height: 480px) {
+  .hero-title { bottom: 218px; font-size: 16px; }
+  .hero-episode { bottom: 196px; }
+  .hero-summary { bottom: 164px; max-height: 36px; }
+  .right-actions { top: 50%; bottom: auto; transform: translateY(-50%); gap: 6px; }
+  .catalog-ribbon { bottom: 142px; }
+  .bottom-controls { bottom: 56px; }
+  .hero-top-copy { top: 52px; }
+  .detail-episode { height: 36px; }
+  html.tv-shell .hero-title { font-size: 16px; }
+  html.tv-shell .hero-episode { font-size: 12px; }
+  html.tv-shell .hero-summary { max-height: 36px; font-size: 12px; }
+  .mobile-fullscreen-pill { display: none; }
+}
+
+/* Quick-entry pills created by mobile-nav.js (phones only). */
+.mobile-quick-entries { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 16px; }
+.mobile-quick-entries > strong { flex-basis: 100%; color: #9fa0ac; font-size: 13px; }
+.mobile-quick-entry { min-height: 36px; padding: 6px 16px; color: #e8e8ee; background: #2b2c35; border: 1px solid #3a3b45; border-radius: 18px; font-size: 14px; }
+.mobile-quick-entry.is-focused, .mobile-quick-entry:focus:not(.pointer-focus-muted) { outline: none; box-shadow: 0 0 0 2px #fff; }
+
+/* Account page rebuilt by mobile-nav.js in the official Hongguo style. */
+.mobile-account-header { display: flex; align-items: center; gap: 14px; padding: 4px 2px 14px; }
+.mobile-account-avatar { display: flex; flex: none; align-items: center; justify-content: center; width: 54px; height: 54px; border-radius: 50%; background: #2b2c35; color: #9fa0ac; }
+.mobile-account-avatar svg { width: 30px; height: 30px; }
+.mobile-account-header strong { color: #fff; font-size: 20px; }
+.mobile-login-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 18px; padding: 14px 16px; border-radius: 12px; background: linear-gradient(90deg, #40301f, #26272f); }
+.mobile-login-banner strong { display: block; color: #ffd9a8; font-size: 16px; }
+.mobile-login-banner span { display: block; margin-top: 4px; color: #9fa0ac; font-size: 12px; }
+.mobile-login-banner button { flex: none; min-height: 36px; padding: 0 18px; border: 0; border-radius: 18px; background: #ff7a45; color: #fff; font-size: 14px; }
+.mobile-tile-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 10px; margin-bottom: 20px; }
+.mobile-tile-grid > strong { grid-column: 1 / -1; color: #e8e8ee; font-size: 15px; }
+.mobile-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 76px; padding: 10px 4px; border: 0; border-radius: 12px; background: #22232c; color: #d8d8e0; font-size: 13px; }
+.mobile-tile svg { width: 24px; height: 24px; }
+.mobile-tile.is-focused, .mobile-tile:focus:not(.pointer-focus-muted) { outline: none; box-shadow: 0 0 0 2px #fff; }
+
+/* 全屏观看 pill injected into the portrait player hero. */
+.mobile-fullscreen-pill { position: absolute; z-index: 6; left: 50%; bottom: 170px; display: flex; align-items: center; gap: 6px; padding: 8px 16px; transform: translateX(-50%); border: 1px solid rgba(255, 255, 255, .28); border-radius: 20px; background: rgba(0, 0, 0, .55); color: #fff; font-size: 14px; }
+.mobile-fullscreen-pill svg { width: 16px; height: 16px; }
+.mobile-fullscreen-pill.is-focused, .mobile-fullscreen-pill:focus:not(.pointer-focus-muted) { outline: none; box-shadow: 0 0 0 2px #fff; }
+
+/* Portrait control row injected by mobile-nav.js: 观看完整剧情 · 全N集 + ⋮. */
+.mobile-control-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mobile-watch-pill { display: flex; flex: 1 1 auto; align-items: center; gap: 4px; min-width: 0; min-height: 38px; padding: 0 14px; border: 0; border-radius: 19px; background: rgba(0, 0, 0, .55); color: #fff; font-size: 14px; }
+.mobile-watch-pill span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.mobile-watch-count { color: rgba(255, 255, 255, .85); }
+.mobile-watch-chevron { margin-left: auto; font-style: normal; font-size: 12px; }
+.mobile-more-btn { flex: none; width: 38px; min-height: 38px; border: 0; border-radius: 19px; background: rgba(0, 0, 0, .55); color: #fff; font-size: 20px; line-height: 1; }
+.mobile-watch-pill.is-focused, .mobile-watch-pill:focus:not(.pointer-focus-muted),
+.mobile-more-btn.is-focused, .mobile-more-btn:focus:not(.pointer-focus-muted) { outline: none; box-shadow: 0 0 0 2px #fff; }
+/* Inline cinema controls injected by mobile-nav.js: current speed, quality,
+   danmaku state and an exit-fullscreen icon in the bottom control row. */
+.mobile-cinema-controls { display: none; flex: none; align-items: center; gap: 8px; }
+.app-shell.is-cinema .mobile-cinema-controls { display: flex; }
+.mobile-cinema-btn { display: flex; align-items: center; gap: 4px; min-height: 34px; padding: 0 12px; border: 0; border-radius: 17px; background: rgba(0, 0, 0, .55); color: #fff; font-size: 14px; white-space: nowrap; }
+.mobile-cinema-btn svg { width: 16px; height: 16px; }
+.mobile-cinema-btn.is-focused, .mobile-cinema-btn:focus:not(.pointer-focus-muted) { outline: none; box-shadow: 0 0 0 2px #fff; }
+
+@media (max-width: 760px), (max-height: 480px) {
+  .mobile-player-menu { position: absolute; z-index: 10; right: 0; bottom: calc(100% + 10px); display: flex; flex-direction: column; gap: 2px; min-width: 132px; padding: 6px; border-radius: 12px; background: #22232c; box-shadow: 0 8px 28px rgba(0, 0, 0, .55); }
+  .mobile-player-menu.is-hidden { display: none; }
+  .mobile-player-menu-item { min-height: 40px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: #e8e8ee; font-size: 15px; text-align: left; }
+  .mobile-player-menu-item:active, .mobile-player-menu-item.is-focused { background: #34353f; }
+}

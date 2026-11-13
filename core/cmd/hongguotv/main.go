@@ -35,6 +35,7 @@ type server struct {
 	accounts             *accountManager
 	numberInputs         *numberInputManager
 	searchHistoryStore   *searchHistoryStore
+	feedHistoryStore     *feedHistoryStore
 	searchDiscoveryCache searchDiscoveryCache
 }
 
@@ -77,6 +78,10 @@ func main() {
 	if err != nil {
 		log.Printf("prepare recent search: %v", err)
 	}
+	s.feedHistoryStore, err = newFeedHistoryStore(*dataDir)
+	if err != nil {
+		log.Printf("prepare feed shown history: %v", err)
+	}
 	s.accounts, err = newAccountManager(*dataDir, library, s.hongguo)
 	if err != nil {
 		log.Fatalf("prepare account: %v", err)
@@ -95,6 +100,7 @@ func main() {
 	mux.HandleFunc("/api/v1/account/", s.account)
 	mux.HandleFunc("/api/v1/number-input", s.numberInput)
 	mux.HandleFunc("/api/v1/search-history", s.searchHistory)
+	mux.HandleFunc("/api/v1/feed-history", s.feedHistory)
 	mux.HandleFunc("/api/v1/category", s.category)
 	mux.HandleFunc("/api/v1/Category", s.category)
 	mux.HandleFunc("/api/v1/rank", s.rank)
@@ -122,6 +128,10 @@ func main() {
 	mux.HandleFunc("/api/v1/play/info", s.playInfo)
 	mux.HandleFunc("/api/v1/PlayInfo", s.playInfo)
 	mux.HandleFunc("/api/v1/playback/custom-device", s.playbackCustomDevice)
+	mux.HandleFunc("/api/v1/cast/devices", s.castDevices)
+	mux.HandleFunc("/api/v1/cast/start", s.castStart)
+	mux.HandleFunc("/api/v1/cast/stop", s.castStop)
+	mux.HandleFunc("/api/v1/cast/status", s.castStatus)
 	// The TV APK owns the MiniReel resolver and media cache.  These routes are
 	// served by the same process so the UI never needs a second playback host.
 	mux.HandleFunc("/minireel-proxy/resolve", handleMiniReelResolve)
