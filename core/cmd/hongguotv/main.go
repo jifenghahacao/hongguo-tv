@@ -36,6 +36,7 @@ type server struct {
 	numberInputs         *numberInputManager
 	searchHistoryStore   *searchHistoryStore
 	feedHistoryStore     *feedHistoryStore
+	uiSettingsStore      *uiSettingsStore
 	searchDiscoveryCache searchDiscoveryCache
 }
 
@@ -82,6 +83,10 @@ func main() {
 	if err != nil {
 		log.Printf("prepare feed shown history: %v", err)
 	}
+	s.uiSettingsStore, err = newUISettingsStore(*dataDir)
+	if err != nil {
+		log.Printf("prepare ui settings: %v", err)
+	}
 	s.accounts, err = newAccountManager(*dataDir, library, s.hongguo)
 	if err != nil {
 		log.Fatalf("prepare account: %v", err)
@@ -101,6 +106,7 @@ func main() {
 	mux.HandleFunc("/api/v1/number-input", s.numberInput)
 	mux.HandleFunc("/api/v1/search-history", s.searchHistory)
 	mux.HandleFunc("/api/v1/feed-history", s.feedHistory)
+	mux.HandleFunc("/api/v1/ui-settings", s.uiSettings)
 	mux.HandleFunc("/api/v1/category", s.category)
 	mux.HandleFunc("/api/v1/Category", s.category)
 	mux.HandleFunc("/api/v1/rank", s.rank)

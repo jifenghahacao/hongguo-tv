@@ -55,7 +55,13 @@ func (c *passportClient) Discussion(ctx context.Context, q url.Values, danmaku b
 		params.Set("playlet_item_duration", strconv.FormatInt(duration, 10))
 		params.Set("need_danmaku_guide_type", "24")
 		params.Set("count", "90")
-		params.Set("cursor", "0")
+		// Danmaku arrive in ~30s windows; the client pages through them with
+		// the opaque next_cursor blob instead of only ever seeing the first.
+		danCursor := q.Get("cursor")
+		if len(danCursor) > 4000 {
+			return DiscussionResult{}, errors.New("弹幕游标过长")
+		}
+		params.Set("cursor", firstNonEmpty(danCursor, "0"))
 	}
 	// VID belongs in the URL. A comment-type number in this position returns a
 	// valid-looking empty response, which would hide real comments.

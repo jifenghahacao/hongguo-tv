@@ -68,6 +68,7 @@ public class MainActivity extends Activity {
     private int routedHorizontalKeys;
     private int routedConfirmKeys;
     private AnimatedVectorDrawable startupAnimation;
+    private final Runnable startupPanelFallback = this::hideStartupPanel;
     private AppUpdater appUpdater;
     private RecommendedApps recommendedApps;
     private TvHomeChannelManager homeChannelManager;
@@ -217,6 +218,19 @@ public class MainActivity extends Activity {
             public void restoreFocus() { if (!destroyed && webView != null) { grantWebViewFocus(false); scheduleFullscreen(); } }
         });
         webView.addJavascriptInterface(recommendedApps.new Bridge(), "HongguoRecommendedApps");
+        // The mobile UI calls this once the first feed frame is actually on
+        // screen, so the startup panel is never dismissed onto a half-loaded
+        // black home page.
+        webView.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void notifyReady() {
+                runOnUiThread(() -> {
+                    if (destroyed || rendererGone || startupPanel == null) return;
+                    startupPanel.removeCallbacks(startupPanelFallback);
+                    startupPanel.postDelayed(startupPanelFallback, 250);
+                });
+            }
+        }, "HongguoStartup");
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
@@ -255,8 +269,11 @@ public class MainActivity extends Activity {
                 if (destroyed || rendererGone || view != webView) return;
                 super.onPageFinished(view, url);
                 if (!pageLoadFailed && coreUrl != null && url.startsWith(coreUrl)) {
-                    startupPanel.setVisibility(View.GONE);
-                    startupAnimation.stop();
+                    // Keep the panel until HongguoStartup.notifyReady() (first
+                    // feed frame visible). The 8s timer is the hard fallback so
+                    // a stalled stream can never trap the user on the splash.
+                    startupPanel.removeCallbacks(startupPanelFallback);
+                    startupPanel.postDelayed(startupPanelFallback, 8000);
                     pageReady = true;
                     grantWebViewFocus(false);
                     appUpdater.start();
@@ -379,8 +396,16 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    private void hideStartupPanel() {
+        if (destroyed || rendererGone || pageLoadFailed || startupPanel == null || startupRetry == null) return;
+        if (startupRetry.getVisibility() == View.VISIBLE) return; // keep failure states
+        startupPanel.setVisibility(View.GONE);
+        if (startupAnimation != null) startupAnimation.stop();
+    }
+
     private void showRendererFailure() {
         if (destroyed || isFinishing()) return;
+        startupPanel.removeCallbacks(startupPanelFallback);
         startupAnimation.stop();
         startupMessage.setText("界面运行异常，播放已停止，请重试");
         startupPanel.setVisibility(View.VISIBLE);
@@ -409,6 +434,7 @@ public class MainActivity extends Activity {
 
     private void showStartupFailure() {
         if (destroyed) return;
+        startupPanel.removeCallbacks(startupPanelFallback);
         startupMessage.setText("本机服务连接失败，请重试");
         pageReady = false;
         startupAnimation.stop();
@@ -420,6 +446,7 @@ public class MainActivity extends Activity {
     private void waitForCore() {
         if (startupThread != null && startupThread.isAlive()) return;
         // Normal startup shows only the animated logo; text appears on failure.
+        startupPanel.removeCallbacks(startupPanelFallback);
         startupMessage.setText("");
         startupRetry.setVisibility(View.GONE);
         startupPanel.setVisibility(View.VISIBLE);

@@ -111,7 +111,13 @@
   var settings = { quality: "", danmaku: true, auto: true, speed: 1, dmArea: 25 };
   try { Object.assign(settings, JSON.parse(localStorage.getItem("hg-mobile") || "{}")); } catch (e) { }
   document.documentElement.style.setProperty("--dm-area", (settings.dmArea || 25) + "%");
-  function saveSettings() { localStorage.setItem("hg-mobile", JSON.stringify(settings)); }
+  function saveSettings() {
+    localStorage.setItem("hg-mobile", JSON.stringify(settings));
+    // Mirror to the core: the WebView origin (and localStorage with it) dies
+    // on every cold start because the core port is random. Without this the
+    // globally chosen playback speed would silently reset to 1x.
+    postJSON("/api/v1/ui-settings", { settings: settings }).catch(function () { });
+  }
 
   // ---------- sheet ----------
   var sheetWrap = $("#sheet-wrap"), sheetBody = $("#sheet-body");
@@ -157,7 +163,7 @@
 
   // ---------- danmaku engine ----------
   function makeDanmaku(layer, getVideo) {
-    var items = [], ptr = 0;
+    var items = [], ptr = 0, loadSeq = 0;
     var LANES = [8, 16, 24, 32, 40, 48, 56, 64], lastLane = [0, 0, 0, 0, 0, 0, 0, 0];
     function spawn(text) {
       if (!text) return;
@@ -168,23 +174,44 @@
       s.textContent = text;
       s.style.top = LANES[bi] + "%";
       layer.appendChild(s);
-      setTimeout(function () { s.remove(); }, 8200);
+      setTimeout(function () { s.remove(); }, 12500);
     }
     return {
       load: async function (seriesId, vid, durationMs) {
-        items = []; ptr = 0; layer.innerHTML = "";
+        items = []; ptr = 0; loadSeq++; layer.innerHTML = "";
         if (!settings.danmaku || !vid) return;
-        var dur = String(Math.min(86400000, Math.max(300000, durationMs || 180000)));
-        for (var attempt = 0; attempt < 2 && !items.length; attempt++) {
-          try {
-            var d = await getJSON("/api/v1/danmaku", { series_id: seriesId, vid: vid, start: "0", duration: dur });
-            items = (d.items || []).slice(0, 120).sort(function (a, b) { return (a.offset_ms || 0) - (b.offset_ms || 0); });
-          } catch (e) { }
-        }
+        var seq = loadSeq;
+        var dur = Math.min(86400000, Math.max(300000, durationMs || 180000));
+        // The upstream serves danmaku in ~30s windows: one request only covers
+        // the start of the episode, which left the rest of the timeline empty.
+        // Page through the cursor until the window covers the whole episode.
+        var cursor = "", pages = 0, seen = {};
+        try {
+          while (pages < 24) {
+            var params = { series_id: seriesId, vid: vid, start: "0", duration: String(dur) };
+            if (cursor) params.cursor = cursor;
+            var d = await getJSON("/api/v1/danmaku", params);
+            if (seq !== loadSeq) return; // superseded by a newer load/clear
+            (d.items || []).forEach(function (it) {
+              var k = (it.offset_ms || 0) + ":" + (it.text || it.content || "");
+              if (!seen[k]) { seen[k] = 1; items.push(it); }
+            });
+            pages++;
+            if (!d.has_more || !d.next_cursor) break;
+            if (d.window_end && d.window_end >= dur) break;
+            cursor = d.next_cursor;
+          }
+        } catch (e) { }
+        if (seq !== loadSeq) return;
+        items.sort(function (a, b) { return (a.offset_ms || 0) - (b.offset_ms || 0); });
+        if (items.length > 800) items = items.slice(0, 800);
       },
       tick: function () {
-        if (!settings.danmaku) return;
+        if (!settings.danmaku || !items.length) return;
         var t = ((getVideo() || {}).currentTime || 0) * 1000, budget = 3;
+        // After a backward seek, walk the pointer back so the new region's
+        // danmaku still get their turn instead of staying silent.
+        while (ptr > 0 && (items[ptr - 1].offset_ms || 0) > t + 300) ptr--;
         while (ptr < items.length && (items[ptr].offset_ms || 0) <= t + 300) {
           var dt = t - (items[ptr].offset_ms || 0);
           if (dt >= 4000) { ptr++; continue; }
@@ -194,7 +221,7 @@
         }
       },
       send: function (text) { spawn(text); },
-      clear: function () { items = []; ptr = 0; layer.innerHTML = ""; }
+      clear: function () { items = []; ptr = 0; loadSeq++; layer.innerHTML = ""; }
     };
   }
 
@@ -202,6 +229,8 @@
   var feed = $("#feed");
   var feedItems = [];
   var pager = { session: "", offset: 0, kind: "recommend", loading: false, done: false, shown: {} };
+  // Cross-session dedupe for the recommend cold start (cleared on tab switch).
+  var coldSet = {}, coldTopups = 0;
   function createFeedVideo() {
     var v = document.createElement("video");
     v.className = "fi-video";
@@ -239,6 +268,7 @@
         // is always visibly a different video.
         var keep = activeFeed >= 0 && feedItems[activeFeed] ? feedItems[activeFeed].d.series_id : "";
         pager.kind = s.dataset.kind; pager.session = ""; pager.offset = 0; pager.done = false; pager.shown = {};
+        coldSet = {}; coldTopups = 0;
         if (keep) pager.shown[keep] = 1;
         feedVideo.pause(); feedWantPlay = false;
         feedVideo.remove(); fiSeekEl.remove(); // keep them out of the wiped cards
@@ -274,11 +304,12 @@
         if (pager.kind === "recommend") {
           // Cold start: jump into a random page of the hot pool and filter out
           // dramas already surfaced in previous sessions, like the official app.
-          p.offset = String(20 * Math.floor(Math.random() * 15));
+          p.offset = String(8 * Math.floor(Math.random() * 36));
           var hist = [];
           try { hist = (await getJSON("/api/v1/feed-history")).items || []; } catch (e) { }
           hist = hist.filter(function (id) { return !pager.shown[id]; });
-          if (hist.length) p.shown = hist.slice(0, 60).join(",");
+          hist.forEach(function (id) { coldSet[id] = 1; });
+          if (hist.length) p.shown = hist.slice(0, 150).join(",");
         }
         pager.offset = Number(p.offset);
       }
@@ -291,16 +322,30 @@
       }
       var items = d.items || [];
       items.forEach(addFeedItem);
+      // A freshly appended neighbor may be the next swipe target: resolve its
+      // stream URL and warm the hidden twin right away, not only on activate.
+      if (activeFeed >= 0 && feedItems[activeFeed + 1]) {
+        prefetchFeed(feedItems[activeFeed + 1].d);
+        preloadFeedNext(feedItems[activeFeed + 1]);
+      }
       if (pager.kind === "recommend") pushShown(items.map(function (x) { return x.series_id; }));
       pager.session = d.session_id || pager.session;
       pager.offset = d.next_offset ? d.next_offset : pager.offset + items.length;
       if (!d.has_more || !items.length) pager.done = true;
+      // Upstream filter_ids is approximate; if client-side dedupe left the
+      // first cold page nearly empty, pull more pages so the feed has content.
+      if (pager.kind === "recommend" && !pager.done && feedItems.length < 6 && coldTopups < 3) {
+        coldTopups++;
+        pager.loading = false;
+        loadFeed();
+        return;
+      }
     } catch (e) { pager.done = true; }
     pager.loading = false;
   }
 
   function addFeedItem(d) {
-    if (!d || !d.series_id || pager.shown[d.series_id]) return;
+    if (!d || !d.series_id || pager.shown[d.series_id] || coldSet[d.series_id]) return;
     pager.shown[d.series_id] = 1;
     var idx = feedItems.length;
     var c = hashColor(d.series_id);
@@ -405,7 +450,8 @@
     loadFeed();
   }
   function swapFeedPreloaded(it, vid) {
-    if (feedVideoB.dataset.previd !== vid || feedVideoB.readyState < 2) return false;
+    if (!feedVideoB.getAttribute("src") || feedVideoB.error) return false;
+    if (feedVideoB.dataset.previd !== vid) return false;
     if (!it.el.querySelector(".fi-scene").contains(feedVideoB)) return false;
     playToken++; // invalidate any in-flight resolveFeedPlay
     var old = feedVideo;
@@ -416,7 +462,11 @@
     feedVideoB = old;
     feedVideoB.dataset.previd = "";
     feedVideo.muted = false;
-    feedVideo.classList.add("playing");
+    feedVideo.playbackRate = settings.speed || 1;
+    // Ready → reveal instantly. Still buffering → keep the in-flight fetch
+    // (far better than restarting the same src on the other element) and let
+    // the playing event fade the picture in.
+    if (feedVideo.readyState >= 2) feedVideo.classList.add("playing");
     return true;
   }
   function attachFeedPreload(it, vid, hit) {
@@ -650,6 +700,7 @@
   }
   function applyFeedSrc(d, vid, hit) {
     feedVideo.src = hit.path;
+    feedVideo.playbackRate = settings.speed || 1;
     feedVideo.classList.toggle("landscape", hit.w > hit.h);
     var fullBtn = feedItems[activeFeed] && feedItems[activeFeed].el.querySelector(".fi-full-btn");
     if (fullBtn) fullBtn.classList.toggle("show", hit.w > hit.h);
@@ -697,6 +748,7 @@
     el.addEventListener("playing", function () {
       if (el !== feedVideo) return;
       el.classList.add("playing");
+      notifyStartupReady(); // first visible frame → native splash may step aside
       var itm = feedItems[activeFeed] && feedItems[activeFeed].el;
       if (itm) itm.querySelector(".fi-play").classList.remove("show");
     });
@@ -939,7 +991,7 @@
     });
     el.addEventListener("ended", function () {
       if (el !== pVideo) return;
-      if (settings.auto && pd.eps[pd.idx + 1]) playEpisode(pd.idx + 1, 0);
+      if (settings.auto && pd.eps[pd.idx + 1]) playEpisode(pd.idx + 1, 0, true);
       else if (pd.eps[pd.idx + 1]) toast("播放完毕");
     });
     el.addEventListener("playing", function () { if (el === pVideo) pBridge.classList.remove("on"); });
@@ -950,9 +1002,10 @@
       if (p && p.then) p.then(function () { if (el !== pVideo) el.pause(); }).catch(function () { });
     });
   }
-  async function playEpisode(i, startAt) {
+  async function playEpisode(i, startAt, silent) {
     if (!pd.eps[i]) return;
     pd.idx = i;
+    speedLabel();
     var vid = epVid(i);
     pd.vid = vid;
     cmtUI.sync();
@@ -976,7 +1029,9 @@
       pDanmaku.clear();
       pDanmaku.load(pd.drama.series_id, vid, (pVideo.duration || 180) * 1000);
       playP();
-      armHide();
+      // Auto-advance to the next episode must not pop the control panel;
+      // a user-initiated switch still shows it briefly (armHide).
+      if (silent) player.classList.add("hide-ui"); else armHide();
       prefetchEpisode(i + 1); prefetchEpisode(i - 1); prefetchEpisode(i + 2);
       preloadEpisodeNext(i + 1);
       return;
@@ -1007,7 +1062,7 @@
         pDanmaku.clear();
         pDanmaku.load(pd.drama.series_id, vid, (pVideo.duration || 180) * 1000);
         playP();
-        armHide();
+        if (silent) player.classList.add("hide-ui"); else armHide();
       };
       pVideo.load();
     } catch (e) {
@@ -1347,7 +1402,8 @@
       o.addEventListener("click", function () {
         settings.speed = Number(o.dataset.v); saveSettings();
         pVideo.playbackRate = settings.speed; feedVideo.playbackRate = settings.speed;
-        $("#p-speed-n").textContent = settings.speed + "x";
+        feedVideoB.playbackRate = settings.speed;
+        speedLabel();
         closeSheet();
       });
     });
@@ -1711,19 +1767,66 @@
   }
 
   // ---------- search ----------
+  var searchCache = {};
   async function renderSearch() {
     var page = $("#page-search");
     var hots = feedItems.slice(0, 4).map(function (x) { return x.d.title; });
-    page.innerHTML = '<div class="search-bar"><div class="search-box">' + ic("search") + '<input id="search-input" placeholder="搜索短剧、漫剧…"></div><button class="login-btn" id="search-go" style="background:var(--red);color:#fff;padding:8px 16px;border-radius:16px;font-size:13px;font-weight:600">搜索</button></div>' +
+    page.innerHTML = '<div class="sug-wrap"><div class="search-bar"><div class="search-box">' + ic("search") + '<input id="search-input" placeholder="搜索短剧、漫剧…"></div><button class="login-btn" id="search-go" style="background:var(--red);color:#fff;padding:8px 16px;border-radius:16px;font-size:13px;font-weight:600">搜索</button></div><div class="sug-list" id="sug-list"></div></div>' +
       '<div class="section"><div class="section-title">热门搜索</div><div class="hot-words">' + (hots.length ? hots.map(function (h) { return '<span class="hot-word">' + esc(h) + "</span>"; }).join("") : '<span class="hot-word">加载中…</span>') + "</div></div>" +
       '<div class="section"><div class="grid2" id="search-grid"></div></div>';
     function doSearch(q) {
       if (!q) return;
+      $("#sug-list").style.display = "none";
+      var cached = searchCache[q];
+      if (cached) { renderGridInto($("#search-grid"), cached); return; }
       $("#search-grid").innerHTML = skGrid(6);
       getJSON("/api/v1/lists/search", { q: q, offset: "0" }).then(function (d) {
+        var keys = Object.keys(searchCache);
+        if (keys.length >= 12) delete searchCache[keys[0]];
+        searchCache[q] = d.items || [];
         renderGridInto($("#search-grid"), d.items || []);
       }).catch(function (e) { $("#search-grid").innerHTML = '<div class="loading">搜索失败：' + esc(e.message) + "</div>"; });
     }
+    // Keyword dropdown, like the official app: debounce the input and use the
+    // fast suggestions endpoint while the user is still typing.
+    var sugTimer = null, sugSeq = 0;
+    function showSugs(items, q) {
+      var el = $("#sug-list");
+      if (!el) return;
+      if (!items.length || !q) { el.style.display = "none"; el.innerHTML = ""; return; }
+      el.innerHTML = items.slice(0, 8).map(function (s, i) {
+        var label = s.name || s.key || "";
+        var pos = label.indexOf(q);
+        var html = pos >= 0
+          ? esc(label.slice(0, pos)) + "<b>" + esc(label.slice(pos, pos + q.length)) + "</b>" + esc(label.slice(pos + q.length))
+          : esc(label);
+        return '<div class="sug-item" data-i="' + i + '">' + html + (s.kind === "actor" ? "<small>演员</small>" : "") + "</div>";
+      }).join("");
+      el.style.display = "block";
+      el.querySelectorAll(".sug-item").forEach(function (row) {
+        row.addEventListener("click", function () {
+          var s = items[Number(row.dataset.i)];
+          var t = s.name || s.key || "";
+          $("#search-input").value = t;
+          doSearch(t);
+        });
+      });
+    }
+    $("#search-input").addEventListener("input", function () {
+      var q = this.value.trim();
+      clearTimeout(sugTimer);
+      if (!q) { showSugs([], ""); return; }
+      sugTimer = setTimeout(function () {
+        var seq = ++sugSeq;
+        getJSON("/api/v1/search/suggestions", { q: q }).then(function (d) {
+          var input = $("#search-input");
+          if (seq === sugSeq && input && input.value.trim() === q) showSugs(d.items || [], q);
+        }).catch(function () { });
+      }, 200);
+    });
+    $("#search-input").addEventListener("blur", function () {
+      setTimeout(function () { var el = $("#sug-list"); if (el) el.style.display = "none"; }, 150);
+    });
     $("#search-go").addEventListener("click", function () { doSearch($("#search-input").value.trim()); });
     $("#search-input").addEventListener("keydown", function (e) { if (e.key === "Enter") doSearch(this.value.trim()); });
     page.querySelectorAll(".hot-word").forEach(function (w, i) {
@@ -1746,7 +1849,35 @@
   }
 
   // ---------- boot ----------
-  loadFeed().then(function () { activate(0); });
+  // The native startup panel stays up until the first feed frame is actually
+  // visible (playing event) so the home page is never revealed half-loaded
+  // with a black background. The timer is the JS-side fallback for streams
+  // that never autoplay (blocked gesture, upstream failure).
+  var startupNotified = false;
+  function notifyStartupReady() {
+    if (startupNotified) return;
+    startupNotified = true;
+    try { if (window.HongguoStartup) window.HongguoStartup.notifyReady(); } catch (e) { }
+  }
+  function speedLabel() {
+    var el = $("#p-speed-n");
+    if (el) el.textContent = (settings.speed && settings.speed !== 1) ? settings.speed + "x" : "倍速";
+  }
+  async function loadSettingsFromCore() {
+    try {
+      var d = await getJSON("/api/v1/ui-settings");
+      if (d && d.settings) {
+        Object.assign(settings, d.settings);
+        localStorage.setItem("hg-mobile", JSON.stringify(settings));
+        document.documentElement.style.setProperty("--dm-area", (settings.dmArea || 25) + "%");
+      }
+    } catch (e) { }
+  }
+  speedLabel();
+  Promise.all([loadSettingsFromCore(), loadFeed()]).then(function () {
+    activate(0);
+    setTimeout(notifyStartupReady, 4500);
+  });
   // unmute feed audio on first user tap
   document.addEventListener("click", function () { feedVideo.muted = false; }, { once: true });
   // Android back button support
