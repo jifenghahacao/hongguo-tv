@@ -13,6 +13,7 @@
   var URLConstructor = typeof URL === 'function' ? URL : url.URL;
   var querystring = require('querystring');
   var createAccount = require('./account');
+  var creatorAlbum = require('./creator-album');
   var passportSign = require('./passport-sign');
   var createPlaybackIdentity = require('./playback-identity');
   var singleProfile = require('./single-playback-profile');
@@ -66,7 +67,7 @@
   }
   function transientVideoModelError(error) {
     if (!error) return false;
-    if (error.code === 'VIDEO_MODEL_HTTP') return [408, 425, 429, 500, 502, 503, 504].indexOf(Number(error.status)) >= 0;
+    if (error.code === 'VIDEO_MODEL_HTTP' || error.code === 'ACCOUNT_DEVICE') return [408, 425, 429, 500, 502, 503, 504].indexOf(Number(error.status)) >= 0;
     return ['VIDEO_MODEL_EMPTY', 'UPSTREAM_TIMEOUT', 'ETIMEDOUT', 'ESOCKETTIMEDOUT', 'ECONNRESET',
       'ECONNREFUSED', 'EPIPE', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'ENETDOWN'].indexOf(error.code) >= 0;
   }
@@ -701,9 +702,10 @@
       return identity().then(function (device) {
         check();
         var stamp = Date.now(), params = playbackQuery(device, stamp);
+        var mixedIDs = {}; mixedIDs[retry.contentType || '1004'] = [String(vid)];
         var body = Buffer.from(JSON.stringify({
           biz_param: { detail_page_version: 0, device_level: 3, disable_digg_stat: false, need_all_video_definition: true, need_mp4_align: false, use_os_player: false, use_server_dns: false, video_platform: 1024 },
-          mixed_video_id_map: { '1004': [String(vid)] }
+          mixed_video_id_map: mixedIDs
         }));
         var signed;
         try { signed = passportSign.signPlayback(params, body, stamp, device.deviceID); }
@@ -740,7 +742,9 @@
         if (diagnostic.http_status) error.upstreamStatus = diagnostic.http_status;
         state.lastError = error;
         var retryable = freshPlaybackRetryable(error);
-        if (state.attempts < 4 && attempt < maximum && allowed() && retryable && (state.host < 2 || state.rounds < 2)) {
+        // A failed registration consumes a round even before a model request.
+        // Do not retry an exhausted identity merely because its host is zero.
+        if (state.attempts < 4 && attempt < maximum && allowed() && retryable && ((state.legacyDevice && state.host < 2) || state.rounds < 2)) {
           var delay = state.attempts <= 1 ? 250 : 1000;
           if (typeof retry.onRetry === 'function') retry.onRetry(error, delay, state.attempts);
           return recoveryDelay(signal, delay).then(function () { check(); if (!allowed()) throw error; return next(); });
@@ -759,17 +763,18 @@
     var state = retry.identityState, diagnostic, attempt = 0;
     function check() { if (playbackIdentityClosed || signal && signal.aborted) throw preparationCancelled(); }
     function report(value) {
-      diagnostic = Object.assign({}, value, { stage: 'video_model', attempt: state.singleAttempts, elapsed_ms: Date.now() - retry.startedAt });
+      diagnostic = Object.assign({}, value, { stage: value.stage || 'video_model', attempt: state.singleAttempts, elapsed_ms: Date.now() - retry.startedAt });
       lastVideoModelDiagnostic = Object.assign({video_id:String(vid)}, diagnostic);
       if (retry.onDiagnostic) retry.onDiagnostic(Object.assign({}, diagnostic));
     }
     function next() {
       check(); if ((state.singleAttempts || 0) >= 2) throw state.lastError;
       state.singleAttempts = (state.singleAttempts || 0) + 1; attempt++;
-      report({code:'VIDEO_MODEL_REQUEST'});
+      report({stage:'device_register',code:'VIDEO_MODEL_REQUEST'});
       var fresh = newPlaybackIdentity(singleProfile);
       return fresh.get(signal).then(function (device) {
         fresh.close(); check();
+        report({code:'VIDEO_MODEL_REQUEST'});
         var stamp = Date.now(), body = Buffer.from(JSON.stringify({ video_id: String(vid), biz_param: { video_id_type: 0, need_all_video_definition: true, video_platform: 3 } }));
         var signed = passportSign.signPlayback(singleProfile.query(device), body, stamp, device.deviceID);
         var cookies = device.cookies || {}, cookie = Object.keys(cookies).filter(function (key) { return ['install_id','ttreq','store-region','store-region-src'].indexOf(key) >= 0; }).sort().map(function (key) { return key + '=' + cookies[key]; }).join('; ');
@@ -785,7 +790,7 @@
         return optionsFromEnvelope(vid,envelope,signal,'video_model',report);
       }).then(function (options) { state.source = 'video_model'; return options; }).catch(function (error) {
         check(); report(Object.assign({},diagnostic,{code:error.code || 'VIDEO_MODEL_NETWORK',network_reason:networkDiagnostic(error)}));
-        error.videoModel = Object.assign({},diagnostic); error.stage = 'video_model'; if (diagnostic.http_status) error.upstreamStatus = diagnostic.http_status; state.lastError = error;
+        error.videoModel = Object.assign({},diagnostic); error.stage = diagnostic.stage; if (diagnostic.http_status) error.upstreamStatus = diagnostic.http_status; state.lastError = error;
         // An answered but incompatible model must not churn identities.
         if (attempt < 2 && state.singleAttempts < 2 && (!retry.allowRetry || retry.allowRetry()) && freshPlaybackRetryable(error)) return next();
         throw error;
@@ -795,7 +800,7 @@
   }
   function singleVideoOptions(vid, signal, retry) {
     var state=retry.identityState, diagnostic={stage:'video_model',code:'VIDEO_MODEL_REQUEST'};
-    function report(value){diagnostic=Object.assign({},diagnostic,value,{stage:'video_model',elapsed_ms:Date.now()-retry.startedAt});lastVideoModelDiagnostic=Object.assign({video_id:String(vid)},diagnostic);if(retry.onDiagnostic)retry.onDiagnostic(Object.assign({},diagnostic));}
+    function report(value){diagnostic=Object.assign({},diagnostic,value,{stage:value.stage||'video_model',elapsed_ms:Date.now()-retry.startedAt});lastVideoModelDiagnostic=Object.assign({video_id:String(vid)},diagnostic);if(retry.onDiagnostic)retry.onDiagnostic(Object.assign({},diagnostic));}
     if(state.singleLegacyPending){state.singleLegacyPending=false;return legacySingleVideoOptions(vid,signal,retry);}
     var current=audioCancel.create(), expired=false, timer=setTimeout(function(){expired=true;current.abort();},4000);
     function aborted(){current.abort();} if(signal)signal.addEventListener('abort',aborted);
@@ -825,8 +830,10 @@
     }
     return registeredSingleIdentity.get(current.signal).then(function(d){return next(d,1);}).then(function(options){finish();state.singleLegacyPending=true;return options;},function(error){
       finish();if(signal&&signal.aborted||playbackIdentityClosed)throw preparationCancelled();
-      report({code:error.code||'VIDEO_MODEL_NETWORK',network_reason:networkDiagnostic(error)});error.videoModel=Object.assign({},diagnostic);
-      if(!expired && error.code!=='ACCOUNT_DEVICE' && error.code!=='PLAYBACK_IDENTITY_COOLDOWN' && !sourceFallbackAllowed(error))throw error;
+      if(error.code==='ACCOUNT_DEVICE')diagnostic={stage:'device_register'};
+      report({stage:diagnostic.stage,code:error.code||'VIDEO_MODEL_NETWORK',network_reason:networkDiagnostic(error)});error.videoModel=Object.assign({},diagnostic);
+      if(error.code==='ACCOUNT_DEVICE')error.stage='device_register';
+      if(!expired && error.code!=='PLAYBACK_IDENTITY_COOLDOWN' && !sourceFallbackAllowed(error))throw error;
       return legacySingleVideoOptions(vid,signal,retry);
     });
   }
@@ -864,8 +871,8 @@
       if (signal && signal.aborted || playbackIdentityClosed) throw preparationCancelled();
       if (expired) error = fail('播放取源超时',504,'UPSTREAM_TIMEOUT');
       var tab = provider === 'video_tab';
-      var exhausted = single || state.attempts >= 4 || !freshPlaybackRetryable(error) || expired;
-      if (tab ? error.code === 'ACCOUNT_DEVICE' || error.name === 'AbortError' : !sourceFallbackAllowed(error)) throw error;
+      var exhausted = single || state.attempts >= 4 || (!state.legacyDevice && state.rounds >= 2) || !freshPlaybackRetryable(error) || expired;
+      if (tab ? (error.code === 'ACCOUNT_DEVICE' && !transientVideoModelError(error)) || error.name === 'AbortError' : !sourceFallbackAllowed(error)) throw error;
       if (error.code !== 'VIDEO_TAB_REJECTED') state.plan.observe(provider,false);
       state.lastError = error;
       // A speculative legacy request may be resumed by its foreground users,
@@ -893,10 +900,11 @@
     return candidates.sort(function (a, b) { return a.height - b.height; })[candidates.length - 1];
   }
 
-  function mediaToken(seriesID, vid, quality, fallback, mode) {
+  function mediaToken(seriesID, vid, quality, fallback, mode, contentType) {
     quality = String(quality || '').trim().toUpperCase();
     if (quality === 'AUTO') quality = '';
     var suffix = quality ? ':' + quality + ':' + String(!!fallback) : '';
+    if (contentType && contentType !== '1004') suffix += ':content_type=' + contentType;
     var token = crypto.createHash('sha256').update(String(seriesID) + ':' + String(vid) + suffix).digest('hex').slice(0, 24);
     return mode === 'range' ? crypto.createHash('sha256').update(token + ':range').digest('hex').slice(0, 24) : token;
   }
@@ -1031,14 +1039,16 @@
     });
   }
 
-  function prepare(seriesID, vid, quality, fallback, mode, prefetch, signal) {
+  function prepare(seriesID, vid, quality, fallback, mode, prefetch, signal, contentType) {
     if (signal && signal.aborted) return Promise.reject(preparationCancelled());
     if (!validID(seriesID) || !validID(vid)) return Promise.reject(fail('播放参数无效'));
+    contentType = String(contentType || '1004');
+    if (!/^[0-9]{1,16}$/.test(contentType)) return Promise.reject(fail('播放类型无效'));
     quality = String(quality || '').trim().toUpperCase();
     if (quality === 'AUTO') quality = '';
     var wantsRange = String(mode || '') === 'range';
-    var fullToken = mediaToken(seriesID, vid, quality, fallback, 'full');
-    var token = wantsRange ? mediaToken(seriesID, vid, quality, fallback, 'range') : fullToken;
+    var fullToken = mediaToken(seriesID, vid, quality, fallback, 'full', contentType);
+    var token = wantsRange ? mediaToken(seriesID, vid, quality, fallback, 'range', contentType) : fullToken;
     var jobKey = token;
     var root = ensureCacheRoot(); var dir = path.join(root, token); var file = path.join(dir, token + '.mp4');
     mediaCache.prune(false);
@@ -1115,7 +1125,7 @@
       return Promise.resolve(resultWithReport({ path: '/minireel-proxy/media/' + token + '.mp4', quality: quality || '', qualities: [], vid: vid, mode: 'full' }, preparationReports[token] || { media_mode: 'full', media_preparation_stage: 'ready' }, false, true));
     }
     var record = { users: 0, foregroundUsers: 0, speculative: !!prefetch, settled: false, resolveCancel: audioCancel.create(),
-      identityState: { plan: sourceMemory.plan([seriesID, 'default', '1004', quality, String(!!fallback)].join('\x00')) },
+      identityState: { plan: sourceMemory.plan([seriesID, 'default', contentType, quality, String(!!fallback)].join('\x00')) },
       report: { media_mode: wantsRange ? 'range' : 'full', media_preparation_stage: 'resolve' } };
     rememberPreparation(token, record.report);
     var resolveStartedAt = Date.now();
@@ -1129,7 +1139,7 @@
     function identityRefreshing() { record.recoveryCancel = record.resolveCancel; }
     var job = measurePreparation(record.report, 'resolve', 'media_resolve_ms', function () {
       return videoOptions(vid, record.resolveCancel.signal, {
-        identityState: record.identityState, maxAttempts: prefetch ? 1 : 4,
+        identityState: record.identityState, contentType: contentType, maxAttempts: prefetch ? 1 : 4,
         startedAt: resolveStartedAt, onRetry: retried, onDiagnostic: diagnostic, onIdentityRefresh: identityRefreshing, allowRetry: foregroundWaiting
       }).catch(function (error) {
         if (!record.speculative || !record.foregroundUsers || record.identityState.attempts >= 4 || !freshPlaybackRetryable(error)) throw error;
@@ -1140,7 +1150,7 @@
         return recoveryDelay(record.recoveryCancel.signal).then(function () {
           if (!record.foregroundUsers || record.recoveryCancel.signal.aborted) throw preparationCancelled();
           return videoOptions(vid, record.recoveryCancel.signal, {
-            identityState: record.identityState, maxAttempts: 4 - record.identityState.attempts,
+            identityState: record.identityState, contentType: contentType, maxAttempts: 4 - record.identityState.attempts,
             startedAt: resolveStartedAt, onRetry: retried, onDiagnostic: diagnostic, onIdentityRefresh: identityRefreshing, allowRetry: foregroundWaiting
           });
         });
@@ -1221,7 +1231,7 @@
       }).then(function (source) {
         source.quality = selected.quality;
         source.refresh = function () {
-          return videoOptions(vid).then(function (freshOptions) {
+          return videoOptions(vid, null, { contentType: contentType }).then(function (freshOptions) {
             var fresh = choose(freshOptions, selected.quality, false);
             return { url: fresh.url, key: fresh.key };
           });
@@ -1242,7 +1252,7 @@
       record.identityState.plan.observe(record.identityState.source,false);
       if (record.identityState.cursor >= record.identityState.plan.order.length && !record.identityState.singleLegacyPending) throw error;
       record.identityState.lastError = fail('原片源媒体不可用',502,'VIDEO_MODEL_MISSING');
-      return videoOptions(vid,record.resolveCancel.signal,{identityState:record.identityState,startedAt:resolveStartedAt,onDiagnostic:diagnostic,allowRetry:foregroundWaiting}).then(prepareOptions);
+      return videoOptions(vid,record.resolveCancel.signal,{identityState:record.identityState,contentType:contentType,startedAt:resolveStartedAt,onDiagnostic:diagnostic,allowRetry:foregroundWaiting}).then(prepareOptions);
     }
     job = job.then(function (result) {
       record.settled = true;
@@ -1434,6 +1444,11 @@
   function normalize(value) {
     if (!value || typeof value !== 'object') return null;
     var object = value.video_data && typeof value.video_data === 'object' ? value.video_data : value;
+    if (first(object.content_type, object.contentType) === '1003') {
+      var album = creatorAlbum.normalize(object.album_info, object);
+      if (album) { album.tags = dramaTags(object.album_info || {}); var albumCoverFallback = browserCoverFallback(album.cover); if (albumCoverFallback) album.cover_fallback = albumCoverFallback; }
+      return album;
+    }
     var id = first(object.series_id_str, object.series_id, object.seriesId, object.book_id, object.id);
     if (!id) return null;
     var vids = stringArray(object.vid_list); if (!vids.length) vids = stringArray(object.episodeVids);
@@ -1801,7 +1816,18 @@
       });
     });
   }
-  function detail(seriesID) { return fetchHTML(WEB_BASE + '/detail?series_id=' + encodeURIComponent(seriesID)).then(function (html) { var router = routerData(html); var raw = findObject(router, 'seriesDetail'); var drama = normalize(raw); if (!drama || drama.series_id !== seriesID) throw fail('详情响应缺少剧集信息'); drama.episodes = (drama.vid_list || []).map(function (vid, index) { var inferredLocked = index >= drama.accessible_episode_cnt; return { index: index + 1, video_id: vid, title: '第' + (index + 1) + '集', locked: inferredLocked, locked_inferred: inferredLocked }; }); var actors = normalizeSeriesActors(raw); if (!actors.length) actors = normalizeSeriesActors(router); return { series_id: drama.series_id, title: drama.title, cover: drama.cover, cover_fallback: drama.cover_fallback, intro: drama.intro, score: drama.score, play_count: drama.play_count, episode_count: drama.episode_count, accessible_episode_cnt: drama.accessible_episode_cnt, vid: drama.vid, vid_list: drama.vid_list, episodes: drama.episodes, tags: drama.tags, actors: actors, related: normalizeRelatedDramas(router, seriesID), reviews: normalizeSeriesReviews(router) }; }); }
+  function detail(seriesID, contentType) {
+    if (!validID(seriesID)) return Promise.reject(fail('series_id 无效'));
+    if (String(contentType) === '1003') {
+      return signedJSON('/novel/player/album_detail/v1/', 'POST', {}, { album_id: seriesID, series_ids: [], need_video_detail_info: true, biz_param: { video_platform: 3 } }).then(function (payload) {
+        var item = creatorAlbum.parse(payload, seriesID);
+        item.tags = dramaTags(payload.data.album_data);
+        var fallback = browserCoverFallback(item.cover); if (fallback) item.cover_fallback = fallback;
+        return item;
+      });
+    }
+    return fetchHTML(WEB_BASE + '/detail?series_id=' + encodeURIComponent(seriesID)).then(function (html) { var router = routerData(html); var raw = findObject(router, 'seriesDetail'); var drama = normalize(raw); if (!drama || drama.series_id !== seriesID) throw fail('详情响应缺少剧集信息'); drama.episodes = (drama.vid_list || []).map(function (vid, index) { var inferredLocked = index >= drama.accessible_episode_cnt; return { index: index + 1, video_id: vid, title: '第' + (index + 1) + '集', locked: inferredLocked, locked_inferred: inferredLocked }; }); var actors = normalizeSeriesActors(raw); if (!actors.length) actors = normalizeSeriesActors(router); return { series_id: drama.series_id, title: drama.title, cover: drama.cover, cover_fallback: drama.cover_fallback, intro: drama.intro, score: drama.score, play_count: drama.play_count, episode_count: drama.episode_count, accessible_episode_cnt: drama.accessible_episode_cnt, vid: drama.vid, vid_list: drama.vid_list, episodes: drama.episodes, tags: drama.tags, actors: actors, related: normalizeRelatedDramas(router, seriesID), reviews: normalizeSeriesReviews(router) }; });
+  }
 
   function fallbackSeason(seriesID, error) {
     return detail(seriesID).then(function (item) {
