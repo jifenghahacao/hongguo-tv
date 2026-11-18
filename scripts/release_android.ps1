@@ -55,7 +55,8 @@ $notesFile = Join-Path $env:TEMP "hongguo-notes-$Version.txt"
 
 # --- GitHub Release -------------------------------------------------------
 $tag = "v$Version"
-$body = @{ tag_name = $tag; name = "红果漫剧 $tag"; body = (Get-Content $notesFile -Raw); draft = $false; prerelease = $false } | ConvertTo-Json
+# ReadAllText (not Get-Content) so the body stays a plain string for ConvertTo-Json.
+$body = @{ tag_name = $tag; name = "红果漫剧 $tag"; body = [System.IO.File]::ReadAllText($notesFile); draft = $false; prerelease = $false } | ConvertTo-Json
 $bodyFile = Join-Path $env:TEMP "hongguo-release-$Version.json"
 [System.IO.File]::WriteAllText($bodyFile, $body, (New-Object System.Text.UTF8Encoding($false)))
 $relJson = & curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/json" --data-binary "@$bodyFile" "$api/releases"
