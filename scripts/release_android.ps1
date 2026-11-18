@@ -1,4 +1,4 @@
-# One-command Android release: signed APK -> GitHub Release -> auto-update manifest.
+﻿# One-command Android release: signed APK -> GitHub Release -> auto-update manifest.
 # Installed users pick the new version up on next launch (<=1 check/day) or via
 # "Mine -> Check for updates"; download is SHA-256 + signature verified.
 #
@@ -44,14 +44,17 @@ if ($Mpv) {
 }
 
 # --- release notes for this version -------------------------------------
+# Read with explicit UTF-8: Windows PowerShell 5.1 would otherwise decode
+# the BOM-less UTF-8 CHANGELOG as ANSI/GBK and corrupt every Chinese note.
 $grab = $false; $notes = @()
-foreach ($line in (Get-Content CHANGELOG.md)) {
+foreach ($line in (([System.IO.File]::ReadAllText("$repoRoot\CHANGELOG.md", [System.Text.Encoding]::UTF8)) -split "`n")) {
     if ($line -match '^## v') { $grab = ($line -match ('^## v' + [regex]::Escape($Version) + '(?![0-9])')); continue }
-    if ($grab) { $notes += $line }
+    if ($grab) { $notes += $line.TrimEnd("`r") }
 }
 if (-not $notes.Count) { throw "CHANGELOG.md has no '## v$Version' section" }
 $notesFile = Join-Path $env:TEMP "hongguo-notes-$Version.txt"
-(($notes -join "`n").Trim()) | Set-Content -Encoding UTF8 $notesFile
+# BOM-free UTF-8: generate_update.py reads the notes as plain utf-8.
+[System.IO.File]::WriteAllText($notesFile, (($notes -join "`n").Trim()), (New-Object System.Text.UTF8Encoding($false)))
 
 # --- GitHub Release -------------------------------------------------------
 $tag = "v$Version"
@@ -61,7 +64,13 @@ $bodyFile = Join-Path $env:TEMP "hongguo-release-$Version.json"
 [System.IO.File]::WriteAllText($bodyFile, $body, (New-Object System.Text.UTF8Encoding($false)))
 # Reuse an existing release for this tag (reruns after a partial failure).
 $rel = (& curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" "$api/releases/tags/$tag") | ConvertFrom-Json
-if (-not $rel.id) {
+if ($rel.id) {
+    # Refresh the body too: earlier runs may have posted mojibake notes.
+    $patch = @{ body = [System.IO.File]::ReadAllText($notesFile) } | ConvertTo-Json
+    $patchFile = Join-Path $env:TEMP "hongguo-patch-$Version.json"
+    [System.IO.File]::WriteAllText($patchFile, $patch, (New-Object System.Text.UTF8Encoding($false)))
+    & curl.exe -s -x $Proxy -X PATCH -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/json" --data-binary "@$patchFile" "$api/releases/$($rel.id)" | Out-Null
+} else {
     $relJson = & curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/json" --data-binary "@$bodyFile" "$api/releases"
     $rel = $relJson | ConvertFrom-Json
     if (-not $rel.id) { throw "release create failed: $relJson" }
@@ -79,6 +88,12 @@ foreach ($flavor in $flavors) {
     & python scripts\generate_update.py --apk $dst --version $Version --code $Code --min-sdk 23 --notes $notesFile --out "update$prefix.json" --variant $flavor
     if ($LASTEXITCODE) { throw "generate_update.py failed for $flavor" }
     # Asset uploads must go to uploads.github.com, not the REST host.
+    # Replace a same-named asset from a previous partial run so the uploaded
+    # APK always matches the freshly computed sha256 in update.json.
+    $existing = (& curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" "$api/releases/$($rel.id)/assets") | ConvertFrom-Json
+    foreach ($a in @($existing.assets | Where-Object { $_.name -eq $asset })) {
+        & curl.exe -s -x $Proxy -X DELETE -H "Authorization: token $env:GH_TOKEN" $a.url | Out-Null
+    }
     $upl = & curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/vnd.android.package-archive" --data-binary "@$dst" "https://uploads.github.com/repos/jifenghahacao/hongguo-tv/releases/$($rel.id)/assets?name=$asset"
     if (-not (($upl | ConvertFrom-Json).browser_download_url)) { throw "asset upload failed: $upl" }
     Write-Output "uploaded $asset"
