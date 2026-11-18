@@ -59,9 +59,13 @@ $tag = "v$Version"
 $body = @{ tag_name = $tag; name = "红果漫剧 $tag"; body = [System.IO.File]::ReadAllText($notesFile); draft = $false; prerelease = $false } | ConvertTo-Json
 $bodyFile = Join-Path $env:TEMP "hongguo-release-$Version.json"
 [System.IO.File]::WriteAllText($bodyFile, $body, (New-Object System.Text.UTF8Encoding($false)))
-$relJson = & curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/json" --data-binary "@$bodyFile" "$api/releases"
-$rel = $relJson | ConvertFrom-Json
-if (-not $rel.id) { throw "release create failed: $relJson" }
+# Reuse an existing release for this tag (reruns after a partial failure).
+$rel = (& curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" "$api/releases/tags/$tag") | ConvertFrom-Json
+if (-not $rel.id) {
+    $relJson = & curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/json" --data-binary "@$bodyFile" "$api/releases"
+    $rel = $relJson | ConvertFrom-Json
+    if (-not $rel.id) { throw "release create failed: $relJson" }
+}
 Write-Output "release: $($rel.html_url)"
 
 # --- manifest + assets ----------------------------------------------------
@@ -74,7 +78,8 @@ foreach ($flavor in $flavors) {
     Copy-Item $src $dst -Force
     & python scripts\generate_update.py --apk $dst --version $Version --code $Code --min-sdk 23 --notes $notesFile --out "update$prefix.json" --variant $flavor
     if ($LASTEXITCODE) { throw "generate_update.py failed for $flavor" }
-    $upl = & curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/vnd.android.package-archive" --data-binary "@$dst" "$api/releases/$($rel.id)/assets?name=$asset"
+    # Asset uploads must go to uploads.github.com, not the REST host.
+    $upl = & curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/vnd.android.package-archive" --data-binary "@$dst" "https://uploads.github.com/repos/jifenghahacao/hongguo-tv/releases/$($rel.id)/assets?name=$asset"
     if (-not (($upl | ConvertFrom-Json).browser_download_url)) { throw "asset upload failed: $upl" }
     Write-Output "uploaded $asset"
 }
