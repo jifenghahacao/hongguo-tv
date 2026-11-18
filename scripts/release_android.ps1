@@ -32,6 +32,9 @@ $dirty = & git status --porcelain
 if ($dirty) { throw "working tree not clean; commit the release changes first" }
 
 # --- build --------------------------------------------------------------
+# CORE_VERSION baked into the APK must equal the -X main.version of the .so,
+# otherwise the startup handshake fails ("本机服务连接失败").
+$env:HONGGUO_CORE_VERSION = $Version
 & powershell -File scripts\buildso_android.ps1 -Version $Version
 if ($LASTEXITCODE) { throw "core .so build failed" }
 & $gradleBat -p android assembleStandardRelease -q
