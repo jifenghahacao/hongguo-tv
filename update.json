@@ -2,12 +2,12 @@
   "schema": 1,
   "variant": "standard",
   "package_name": "rocks.aston.hongguotv",
-  "version_code": 105,
-  "version_name": "1.0.5",
+  "version_code": 106,
+  "version_name": "1.0.6",
   "min_sdk": 23,
-  "size": 15460700,
-  "sha256": "def05cf3b325b60bfaa4e453d7d0508d6d0bf9215c7e171ed146ed0276bfe931",
-  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.5/hongguo-tv-1.0.5.apk",
-  "release_notes": "### 新增\n- App 内更新弹窗：发现新版本时弹出对话框展示更新内容与安装包大小，「取消 / 立即更新」两个按钮\n- 点「立即更新」后弹窗内直接显示下载进度条（百分比 + 已下载/总大小），完成后可取消或等校验后一键拉起系统安装\n- 启动时若已发现新版本也会自动弹出该更新框（替代被部分手机系统拦截的原生弹窗）",
-  "published_at": "2026-11-18T16:38:02.123695+00:00"
+  "size": 15460968,
+  "sha256": "10b084da41add25b364b0855c41e2592c8914aa415b97c7d5da2c32c0fea4a96",
+  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.6/hongguo-tv-1.0.6.apk",
+  "release_notes": "### 优化\n- 「观看历史」行去掉\"全部记录\"文字，与其他行样式统一\n- 「检查更新」行的版本号与「默认画质」行同布局：版本号 + 右箭头，更新状态变化时箭头不再消失",
+  "published_at": "2026-11-18T16:47:26.507191+00:00"
 }
