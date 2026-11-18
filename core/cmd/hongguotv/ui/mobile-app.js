@@ -2294,15 +2294,35 @@
 
   // ---------- search ----------
   var searchCache = {};
+  // "猜你喜欢" keeps one random hot-pool batch per app session so returning
+  // to the search tab does not re-shuffle the cards every time.
+  var guessCache = null;
   async function renderSearch() {
     var page = $("#page-search");
     var hots = feedItems.slice(0, 4).map(function (x) { return x.d.title; });
     page.innerHTML = '<div class="sug-wrap"><div class="search-bar"><div class="search-box">' + ic("search") + '<input id="search-input" placeholder="搜索短剧、漫剧…"></div><button class="login-btn" id="search-go" style="background:var(--red);color:#fff;padding:8px 16px;border-radius:16px;font-size:13px;font-weight:600">搜索</button></div><div class="sug-list" id="sug-list"></div></div>' +
       '<div class="section"><div class="section-title">热门搜索</div><div class="hot-words">' + (hots.length ? hots.map(function (h) { return '<span class="hot-word">' + esc(h) + "</span>"; }).join("") : '<span class="hot-word">加载中…</span>') + "</div></div>" +
-      '<div class="section"><div class="grid2" id="search-grid"></div></div>';
+      '<div class="section"><div class="section-title" id="sg-title">猜你喜欢</div><div class="grid2" id="search-grid">' + skGrid(6) + "</div></div>";
+    loadGuess();
+    function loadGuess() {
+      var render = function () {
+        var g = $("#search-grid");
+        if (g && guessCache && !($("#search-input") || {}).value) renderGridInto(g, guessCache);
+      };
+      if (guessCache) { render(); return; }
+      var sid = String(Math.floor(Math.random() * 9e14) + 1e14);
+      getJSON("/api/v1/lists/recommend", { session_id: sid, offset: String(8 * Math.floor(Math.random() * 36)) }).then(function (d) {
+        guessCache = (d.items || []).slice(0, 8);
+        render();
+      }).catch(function () {
+        var g = $("#search-grid");
+        if (g && !g.querySelector(".card")) g.innerHTML = '<div class="loading">推荐暂时不可用</div>';
+      });
+    }
     function doSearch(q) {
       if (!q) return;
       $("#sug-list").style.display = "none";
+      var t = $("#sg-title"); if (t) t.textContent = "搜索结果";
       var cached = searchCache[q];
       if (cached) { renderGridInto($("#search-grid"), cached); return; }
       $("#search-grid").innerHTML = skGrid(6);
