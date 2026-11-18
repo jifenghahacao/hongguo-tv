@@ -6,8 +6,8 @@
   "version_name": "1.0.1",
   "min_sdk": 23,
   "size": 15457298,
-  "sha256": "66597f327693abbc3559edc834d4d869f1e2dc0d8a64963ceb4f049c2c6b3d6b",
+  "sha256": "7d31e5e6edbc0d5f4d7948f0e6bc02f97ef47feabd2dfe183dd490480a5f1a76",
   "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.1/hongguo-tv-1.0.1.apk",
   "release_notes": "### 修复\n- 登录成功后「我的」页仍显示未登录：账号资料读取了不存在的接口，现改用账号状态接口，正确显示头像、昵称、脱敏手机号\n- 登录按钮登录后变为「退出登录」，可直接退出账号",
-  "published_at": "2026-11-18T15:34:28.189038+00:00"
+  "published_at": "2026-11-18T15:46:07.658534+00:00"
 }
