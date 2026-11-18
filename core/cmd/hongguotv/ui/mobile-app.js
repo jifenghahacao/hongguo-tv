@@ -2029,11 +2029,27 @@
       $("#st-b").textContent = (f.items || []).length || "-";
     } catch (e) { }
     try {
-      var p = await getJSON("/api/v1/account/profile", {});
-      if (p && (p.nickname || p.name)) { $("#mn-name").textContent = p.nickname || p.name; $("#mn-login").textContent = "已登录"; }
+      // accountStatus carries logged_in + profile; there is no /profile endpoint.
+      var st = await getJSON("/api/v1/account", {});
+      if (st && st.logged_in) {
+        var p = st.profile || {};
+        if (p.name) $("#mn-name").textContent = p.name;
+        if (p.phone) $(".mine-head .mh-sub").textContent = p.phone;
+        var av = $(".mine-head .avatar");
+        if (av && p.avatar) {
+          av.innerHTML = '<img src="' + esc(p.avatar) + '" alt="" onerror="this.remove()">';
+        }
+        var b = $("#mn-login");
+        b.textContent = "退出登录"; b.dataset.on = "1";
+      }
     } catch (e) { }
     $("#mn-login").addEventListener("click", function () {
-      if ($("#mn-login").textContent === "已登录") { toast("已登录当前账号"); return; }
+      if (this.dataset.on) {
+        var self = this; self.disabled = true;
+        postJSON("/api/v1/account/logout", {}).then(function () { toast("已退出登录"); renderMine(); })
+          .catch(function (e) { self.disabled = false; toast(e.message || "退出失败"); });
+        return;
+      }
       openLogin();
     });
     renderUpdateRow();
