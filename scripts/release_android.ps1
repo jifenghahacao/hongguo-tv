@@ -90,8 +90,9 @@ foreach ($flavor in $flavors) {
     # Asset uploads must go to uploads.github.com, not the REST host.
     # Replace a same-named asset from a previous partial run so the uploaded
     # APK always matches the freshly computed sha256 in update.json.
+    # (The assets endpoint returns a bare JSON array.)
     $existing = (& curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" "$api/releases/$($rel.id)/assets") | ConvertFrom-Json
-    foreach ($a in @($existing.assets | Where-Object { $_.name -eq $asset })) {
+    foreach ($a in @($existing | Where-Object { $_.name -eq $asset })) {
         & curl.exe -s -x $Proxy -X DELETE -H "Authorization: token $env:GH_TOKEN" $a.url | Out-Null
     }
     $upl = & curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/vnd.android.package-archive" --data-binary "@$dst" "https://uploads.github.com/repos/jifenghahacao/hongguo-tv/releases/$($rel.id)/assets?name=$asset"
