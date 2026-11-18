@@ -2,12 +2,12 @@
   "schema": 1,
   "variant": "standard",
   "package_name": "rocks.aston.hongguotv",
-  "version_code": 100,
-  "version_name": "1.0.0",
+  "version_code": 101,
+  "version_name": "1.0.1",
   "min_sdk": 23,
-  "size": 15456868,
-  "sha256": "fb9c67ae1d0efcf9518a2a4622c651b8e28df6f1f642418ee92571aab6c1936b",
-  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.0/hongguo-tv-1.0.0.apk",
-  "release_notes": "﻿### 鏂板\n- 鎵嬫満鍙?+ 鐭俊楠岃瘉鐮佺櫥褰曪細鐧诲綍闈㈡澘鍙?Tab锛堟墜鏈哄彿/鎵爜锛夛紝鏀寔閲嶅彂鍊掕鏃朵笌绾㈡灉鐭俊浜屾楠岃瘉\n- 鎵嬫満鐗堝簲鐢ㄥ唴鎵爜鐧诲綍锛氫簩缁寸爜鑾峰彇銆佺姸鎬佽疆璇€佽繃鏈熶竴閿噸璇曪紝鏃犻渶鍊熷姪缃戦〉绔垨鐢佃绔?- 鑷姩鏇存柊锛氬惎鍔ㄦ椂姣忓ぉ鏈€澶氭鏌ヤ竴娆★紱銆屾垜鐨?鈫?妫€鏌ユ洿鏂般€嶆墜鍔ㄦ鏌ュ苟鏄剧ず褰撳墠鐗堟湰锛汼HA-256 + 绛惧悕鍙岄噸鏍￠獙鍚庤皟璧风郴缁熷畨瑁咃紝瑕嗙洊鍗囩骇淇濈暀璐﹀彿涓庤褰?- 鐗堟湰杩唬绠＄悊锛欳HANGELOG.md + GitHub Release 鍙戝竷閫氶亾锛坲pdate.json / update-mpv.json 鍏冩暟鎹級\n\n### 淇\n- 鍏ㄥ眬鍊嶉€熷け鏁堬細杩涘叆鎾斁椤垫樉绀?2x 瀹為檯 1x锛堣棰?load() 閲嶇疆 playbackRate锛?- 瑙傜湅鍘嗗彶鏀逛负鎸夋渶杩戣鐪嬫椂闂存帓搴?- 鍚堝苟涓婃父 v0.2.173 鎵爜鐧诲綍淇锛氭崲鐮侀€昏緫銆佽繃鏈熻窡闅忋€佹湰鏈烘椂閽熷亸蹇椂鐨勪繚瀹堝€掕鏃?- 寮瑰箷鍒嗛〉銆侀潤榛樿繛鎾€佹帹鑽愯疆杞€佹悳绱㈣仈鎯炽€侀瑙ｇ爜绉掓挱銆佺画鎾€侀煶棰戠劍鐐广€佸喎鍚姩缂撳瓨锛?.2.x 杩唬椤癸紝闅忛涓寮忕増鏈竴骞跺彂甯冿級",
-  "published_at": "2026-11-18T15:18:42.464401+00:00"
+  "size": 15457283,
+  "sha256": "e2bb39ca09fc58c5d785d02524b209910d4c3a94bead324cc44c3574d2df6d52",
+  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.1/hongguo-tv-1.0.1.apk",
+  "release_notes": "﻿### 淇\n- 鐧诲綍鎴愬姛鍚庛€屾垜鐨勩€嶉〉浠嶆樉绀烘湭鐧诲綍锛氳处鍙疯祫鏂欒鍙栦簡涓嶅瓨鍦ㄧ殑鎺ュ彛锛岀幇鏀圭敤璐﹀彿鐘舵€佹帴鍙ｏ紝姝ｇ‘鏄剧ず澶村儚銆佹樀绉般€佽劚鏁忔墜鏈哄彿\n- 鐧诲綍鎸夐挳鐧诲綍鍚庡彉涓恒€岄€€鍑虹櫥褰曘€嶏紝鍙洿鎺ラ€€鍑鸿处鍙?",
+  "published_at": "2026-11-18T15:31:14.246216+00:00"
 }
