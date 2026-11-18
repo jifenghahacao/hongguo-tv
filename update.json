@@ -2,12 +2,12 @@
   "schema": 1,
   "variant": "standard",
   "package_name": "rocks.aston.hongguotv",
-  "version_code": 102,
-  "version_name": "1.0.2",
+  "version_code": 103,
+  "version_name": "1.0.3",
   "min_sdk": 23,
-  "size": 15457409,
-  "sha256": "fafea339ae62c5d45fce2763ebb724dfb1aad70dbf6d8e183d34c1884f21b524",
-  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.2/hongguo-tv-1.0.2.apk",
-  "release_notes": "### 新增\n- 搜索页「热门搜索」下方新增「猜你喜欢」卡片推荐：随机热门剧集，点封面直接开播；发起搜索后该区自动切换为「搜索结果」",
-  "published_at": "2026-11-18T15:56:34.859330+00:00"
+  "size": 15457276,
+  "sha256": "ce8e9b6efac04e14f76557ef2aa3902f1c116ab1e87430df6d3404c176e2ae69",
+  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.3/hongguo-tv-1.0.3.apk",
+  "release_notes": "### 修复\n- 「检查更新」只提示一句就结束了：已有缓存的\"发现新版本\"状态会跳过实际流程。现在手动检查必定重新走完整链路——弹出新版本对话框（即使之前点过\"以后再说\"）→ 下载 → SHA-256+签名校验 → 拉起系统安装",
+  "published_at": "2026-11-18T16:04:59.720331+00:00"
 }
