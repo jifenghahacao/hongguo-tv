@@ -113,6 +113,17 @@ final class AppUpdater {
                 if (latest != null && "ready".equals(state)) launchInstaller(latest);
             });
         }
+        // The in-app update dialog (WebView) drives download + progress;
+        // no native AlertDialog, which some vendor ROMs suppress.
+        @JavascriptInterface public void download() {
+            if (host.trusted()) activity.runOnUiThread(() -> {
+                Manifest target = latest;
+                if (target != null && "available".equals(state)) beginDownload(target, false);
+            });
+        }
+        @JavascriptInterface public void cancel() {
+            if (host.trusted()) activity.runOnUiThread(AppUpdater.this::cancelDownload);
+        }
         @JavascriptInterface public void setPromptAllowed(boolean allowed) {
             if (host.trusted()) activity.runOnUiThread(() -> { promptAllowed = allowed; maybePrompt(); });
         }
@@ -253,7 +264,7 @@ final class AppUpdater {
             AlertDialog prompt = new AlertDialog.Builder(activity).setTitle("发现新版本 " + target.name)
                 .setMessage((target.notes.isEmpty() ? "红果短剧有新版本可以安装。" : target.notes) + "\n\n覆盖升级保留账号和记录。")
                 .setNegativeButton("稍后", (d, which) -> defer(target))
-                .setPositiveButton("立即更新", (d, which) -> beginDownload(target)).create();
+                .setPositiveButton("立即更新", (d, which) -> beginDownload(target, true)).create();
             prompt.setOnCancelListener(d -> defer(target));
             show(prompt, AlertDialog.BUTTON_NEGATIVE);
         });
@@ -273,14 +284,14 @@ final class AppUpdater {
         next.show();
     }
 
-    private void beginDownload(Manifest target) {
+    private void beginDownload(Manifest target, boolean nativeProgress) {
         // The confirmation is dismissed by Android after its click listener returns.
         activity.getWindow().getDecorView().post(() -> {
             if (destroyed || downloading || savingApk || pendingSavePermission != null || pendingSaveResume != null) return;
             if (dialog != null) { AlertDialog old = dialog; dialog = null; old.dismiss(); }
             downloading = true; downloaded = 0; state = "downloading"; message = "正在下载 " + target.name; publish();
             final int epoch = generation.incrementAndGet();
-            showDownloadProgress();
+            if (nativeProgress) showDownloadProgress();
             worker.execute(() -> download(target, epoch));
         });
     }
@@ -828,7 +839,8 @@ final class AppUpdater {
             value.put("downloaded", downloaded);
             value.put("latest_version", latest == null ? "" : latest.name);
             value.put("latest_code", latest == null ? 0 : latest.code);
-            value.put("size", latest == null ? 0 : latest.bytes); snapshot = value.toString();
+            value.put("size", latest == null ? 0 : latest.bytes);
+            value.put("release_notes", latest == null ? "" : latest.notes); snapshot = value.toString();
         } catch (Exception ignored) { /* Keep the last complete status. */ }
     }
 

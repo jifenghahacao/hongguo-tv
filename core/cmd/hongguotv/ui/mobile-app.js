@@ -2243,13 +2243,79 @@
     else el.textContent = d.current_version || "v1.0";
   }
   var updWatch = 0;
+  // In-WebView update dialog: some vendor ROMs silently suppress the native
+  // AlertDialog, so the whole prompt/download/install flow lives here instead.
+  function updMb(n) { n = Number(n) || 0; return n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
+  function updNotesHtml(s) {
+    var lines = String(s || "").split("\n").map(function (l) { return l.replace(/^#+\s*/, "").replace(/^[-*]\s*/, "").trim(); }).filter(function (l) { return l && !/^[=—-]+$/.test(l); });
+    if (!lines.length) return "优化了若干体验细节。";
+    return lines.map(function (l) { return "<div>" + esc(l) + "</div>"; }).join("");
+  }
+  var updPoll = 0;
+  function stopUpdPoll() { if (updPoll) { clearInterval(updPoll); updPoll = 0; } }
+  function closeUpdDialog() { stopUpdPoll(); var m = document.getElementById("upd-mask"); if (m) m.remove(); }
+  function updShell() {
+    var m = document.getElementById("upd-mask");
+    if (!m) { m = document.createElement("div"); m.id = "upd-mask"; m.className = "upd-mask"; document.body.appendChild(m); }
+    if (!m.querySelector(".upd-dialog")) m.innerHTML = '<div class="upd-dialog"></div>';
+    return m.querySelector(".upd-dialog");
+  }
+  function showUpdateAvailable(d) {
+    updShell().innerHTML =
+      '<div class="upd-title">发现新版本 v' + esc(d.latest_version || "") + "</div>" +
+      '<div class="upd-meta">安装包约 ' + updMb(d.size) + " · 覆盖升级保留账号和记录</div>" +
+      '<div class="upd-notes">' + updNotesHtml(d.release_notes) + "</div>" +
+      '<div class="upd-btns"><button class="upd-cancel">取消</button><button class="upd-ok" id="upd-go">立即更新</button></div>';
+    document.getElementById("upd-mask").querySelector(".upd-cancel").addEventListener("click", closeUpdDialog);
+    document.getElementById("upd-go").addEventListener("click", function () {
+      window.HongguoTVUpdates.download();
+      showUpdateProgress({ state: "downloading", downloaded: 0, size: d.size, latest_version: d.latest_version });
+      startDlPoll();
+    });
+  }
+  function showUpdateProgress(s) {
+    var pct = Number(s.size) > 0 ? Math.min(100, Math.round((Number(s.downloaded) || 0) / Number(s.size) * 100)) : 0;
+    var extra = s.message && s.message.indexOf("线路") >= 0 ? " · " + esc(s.message) : "";
+    updShell().innerHTML =
+      '<div class="upd-title">正在下载 v' + esc(s.latest_version || "") + "</div>" +
+      '<div class="upd-bar"><i style="width:' + pct + '%"></i></div>' +
+      '<div class="upd-meta">' + pct + "% · " + updMb(s.downloaded) + " / " + updMb(s.size) + extra + "</div>" +
+      '<div class="upd-btns"><button class="upd-cancel" id="upd-cancel-dl">取消下载</button></div>';
+    document.getElementById("upd-cancel-dl").addEventListener("click", function () { window.HongguoTVUpdates.cancel(); closeUpdDialog(); });
+  }
+  function showUpdateReady(s) {
+    updShell().innerHTML =
+      '<div class="upd-title">下载完成</div>' +
+      '<div class="upd-meta">v' + esc(s.latest_version || "") + " 安装包已通过完整性校验，接下来在系统安装页确认安装即可完成更新。</div>" +
+      '<div class="upd-btns"><button class="upd-ok" id="upd-install">立即安装</button></div>';
+    document.getElementById("upd-install").addEventListener("click", function () { window.HongguoTVUpdates.install(); });
+  }
+  function showUpdateError(s) {
+    updShell().innerHTML =
+      '<div class="upd-title">更新失败</div>' +
+      '<div class="upd-meta">' + esc(s.message || "下载失败，请检查网络后重试") + "</div>" +
+      '<div class="upd-btns"><button class="upd-cancel" id="upd-err-x">关闭</button><button class="upd-ok" id="upd-err-retry">重试</button></div>';
+    document.getElementById("upd-err-x").addEventListener("click", closeUpdDialog);
+    document.getElementById("upd-err-retry").addEventListener("click", function () { checkUpdateNow(); });
+  }
+  function startDlPoll() {
+    stopUpdPoll();
+    updPoll = setInterval(function () {
+      var s = updStatus();
+      if (s.state === "downloading") showUpdateProgress(s);
+      else if (s.state === "ready") { stopUpdPoll(); renderUpdateRow(); showUpdateReady(s); }
+      else if (s.state === "error" || s.state === "incompatible" || s.state === "unsupported") { stopUpdPoll(); renderUpdateRow(); showUpdateError(s); }
+      else if (s.state === "installing") { /* installer activity is on top */ }
+    }, 400);
+    setTimeout(function () { if (updPoll && updStatus().state === "downloading") { stopUpdPoll(); closeUpdDialog(); toast("下载超时，请稍后重试"); } }, 300000);
+  }
   function checkUpdateNow() {
     if (!window.HongguoTVUpdates) { toast("检查更新仅在 App 内可用"); return; }
     var d0 = updStatus();
-    if (d0.state === "downloading" || d0.state === "installing") { toast(d0.message || "更新进行中"); return; }
-    // Always delegate to the native check: it re-validates the manifest,
-    // pops the "发现新版本" dialog (manual check bypasses the "以后再说"
-    // suppression) and drives download + signature verify + installer.
+    if (d0.state === "downloading") { showUpdateProgress(d0); startDlPoll(); return; }
+    if (d0.state === "ready") { showUpdateReady(d0); return; }
+    if (d0.state === "available") { showUpdateAvailable(d0); return; }
+    if (d0.state === "installing") { toast(d0.message || "等待系统安装完成"); return; }
     toast("正在检查更新…");
     window.HongguoTVUpdates.check();
     clearInterval(updWatch);
@@ -2259,8 +2325,8 @@
       clearInterval(updWatch); updWatch = 0;
       renderUpdateRow();
       if (d.state === "current") toast("已是最新版本 " + (d.current_version || ""));
+      else if (d.state === "available") showUpdateAvailable(d);
       else if (d.state === "error" || d.state === "unsupported" || d.state === "incompatible") toast(d.message || "检查更新失败");
-      // available/ready/downloading: the native update dialog is on screen.
     }, 800);
     setTimeout(function () { if (updWatch) { clearInterval(updWatch); updWatch = 0; renderUpdateRow(); } }, 30000);
   }
@@ -2465,7 +2531,16 @@
   window.HongguoTV.canShowAppUpdate = function () {
     return !sheetWrap.classList.contains("open") && !player.classList.contains("open") && !$("#rank-page").classList.contains("open");
   };
-  if (window.HongguoTVUpdates) { try { window.HongguoTVUpdates.setPromptAllowed(true); } catch (e) { } }
+  // The update flow lives entirely in the WebView dialog now; keep the native
+  // AlertDialog suppressed so users never see two prompts for one release.
+  if (window.HongguoTVUpdates) {
+    try { window.HongguoTVUpdates.setPromptAllowed(false); } catch (e) { }
+    setTimeout(function () {
+      var s0 = updStatus();
+      if (s0.state === "available") showUpdateAvailable(s0);
+      else if (s0.state === "ready") showUpdateReady(s0);
+    }, 2500);
+  }
   // MainActivity calls this instead of showing the old exit dialog: the first
   // back swipe shows a centered top pill, a second one within 3s exits.
   window.HongguoTV.showExitHint = function () { showTopTip("再左滑一次退出应用", 2600); };
