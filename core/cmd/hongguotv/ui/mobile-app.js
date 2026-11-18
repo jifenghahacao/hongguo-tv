@@ -1997,7 +1997,7 @@
       '<div class="stats"><div class="stat"><b id="st-h">-</b><span>观看历史</span></div><div class="stat"><b id="st-f">-</b><span>收藏</span></div><div class="stat"><b id="st-b">-</b><span>追更</span></div></div>' +
       '<div class="settings">' +
       '<div class="set-group-title">我的内容</div><div class="set-group">' +
-      '<button class="set-row" data-m="history">' + ic("clock") + '<span class="sr-label">观看历史</span><span class="sr-val">全部记录' + ic("chev") + "</span></button>" +
+      '<button class="set-row" data-m="history">' + ic("clock") + '<span class="sr-label">观看历史</span><span class="sr-val">' + ic("chev") + "</span></button>" +
       '<button class="set-row" data-m="favorites">' + ic("star") + '<span class="sr-label">我的收藏</span><span class="sr-val">' + ic("chev") + "</span></button>" +
       '<button class="set-row" data-m="follows">' + ic("bookmark") + '<span class="sr-label">我的追更</span><span class="sr-val">' + ic("chev") + "</span></button>" +
       "</div>" +
@@ -2007,7 +2007,7 @@
       '<div class="set-row">' + ic("danmaku") + '<span class="sr-label">弹幕</span><span class="switch' + (settings.danmaku ? " on" : "") + '" data-sw="danmaku"></span></div>' +
       "</div>" +
       '<div class="set-group-title">通用</div><div class="set-group">' +
-      '<button class="set-row" data-m="update">' + ic("gear") + '<span class="sr-label">检查更新</span><span class="sr-val" id="mn-ver">v1.0' + ic("chev") + "</span></button>" +
+      '<button class="set-row" data-m="update">' + ic("gear") + '<span class="sr-label">检查更新</span><span class="sr-val"><b id="mn-ver">v1.0</b>' + ic("chev") + "</span></button>" +
       "</div></div>";
     page.querySelectorAll(".set-row").forEach(function (r) {
       r.addEventListener("click", function () {
