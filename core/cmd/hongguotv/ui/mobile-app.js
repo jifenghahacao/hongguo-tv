@@ -2242,7 +2242,9 @@
     if (!window.HongguoTVUpdates) { toast("检查更新仅在 App 内可用"); return; }
     var d0 = updStatus();
     if (d0.state === "downloading" || d0.state === "installing") { toast(d0.message || "更新进行中"); return; }
-    if (d0.state === "available" || d0.state === "ready") { toast("新版本已就绪，请按提示安装"); return; }
+    // Always delegate to the native check: it re-validates the manifest,
+    // pops the "发现新版本" dialog (manual check bypasses the "以后再说"
+    // suppression) and drives download + signature verify + installer.
     toast("正在检查更新…");
     window.HongguoTVUpdates.check();
     clearInterval(updWatch);
@@ -2253,7 +2255,7 @@
       renderUpdateRow();
       if (d.state === "current") toast("已是最新版本 " + (d.current_version || ""));
       else if (d.state === "error" || d.state === "unsupported" || d.state === "incompatible") toast(d.message || "检查更新失败");
-      else if (d.state === "ready") toast("安装包已就绪，请按提示安装");
+      // available/ready/downloading: the native update dialog is on screen.
     }, 800);
     setTimeout(function () { if (updWatch) { clearInterval(updWatch); updWatch = 0; renderUpdateRow(); } }, 30000);
   }
