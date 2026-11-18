@@ -78,34 +78,137 @@
     if (ms) topTipTimer = setTimeout(function () { t.classList.remove("show"); }, ms);
   }
   function hideTopTip() { clearTimeout(topTipTimer); $("#top-tip").classList.remove("show"); }
-  // Long-press-to-boost engine: hold the video area for BOOST_MS without
-  // moving, play at 2x; release restores the user's chosen speed.
+  // Long-press-to-boost engine: hold for BOOST_MS to play at 2x. While
+  // boosting, swipe UP locks 2x as the global speed (persisted); dragging to
+  // the bottom wave zone and releasing cancels; a plain release also restores
+  // the user's chosen speed.
   var BOOST_MS = 1500;
+  function showBoostTip() { var b = document.getElementById("boost-hint"); if (b) b.classList.add("show"); }
+  function hideBoostTip() { var b = document.getElementById("boost-hint"); if (b) b.classList.remove("show"); }
+  // Bottom "membrane": while boosting, the screen's lower edge bows upward
+  // toward the finger (under-damped spring, arc centre follows finger X).
+  // Dragging into the bulge and releasing cancels the boost.
+  var membrane = (function () {
+    var p = 0, v = 0, target = 0, cx = 0.5, cxS = 0.5, raf = 0, shown = false;
+    function frame() {
+      var f = (target - p) * 0.14;
+      v = (v + f) * 0.7;
+      p += v;
+      if (Math.abs(target - p) < 0.001 && Math.abs(v) < 0.001) { p = target; v = 0; }
+      cxS += (cx - cxS) * 0.12;
+      // Magnetic bump: only a segment of the bottom edge bows toward the
+      // finger (not a full-width half-circle). cx is in viewBox units (100).
+      var h = p * 16, cxs = Math.max(30, Math.min(70, cxS * 100));
+      var path = document.querySelector("#boost-cancel path");
+      if (path) path.setAttribute("d", "M 0 30 L " + (cxs - 27).toFixed(1) + " 30 C " + (cxs - 13).toFixed(1) + " " + (30 - h).toFixed(1) + " " + (cxs + 13).toFixed(1) + " " + (30 - h).toFixed(1) + " " + (cxs + 27).toFixed(1) + " 30 L 100 30 Z");
+      var txt = document.getElementById("boost-cancel-txt");
+      if (txt) { txt.style.left = cxs.toFixed(1) + "%"; txt.style.bottom = Math.round(h * 3.6 * 0.3 + 8) + "px"; }
+      raf = (shown || p > 0.005) ? requestAnimationFrame(frame) : 0;
+    }
+    return {
+      show: function () {
+        shown = true; target = 1;
+        var z = document.getElementById("boost-cancel"), t = document.getElementById("boost-cancel-txt");
+        if (z) z.classList.add("show");
+        if (t) t.classList.add("show");
+        if (!raf) raf = requestAnimationFrame(frame);
+      },
+      finger: function (x, hot) {
+        cx = Math.max(0.1, Math.min(0.9, x / window.innerWidth));
+        var z = document.getElementById("boost-cancel"), t = document.getElementById("boost-cancel-txt");
+        if (z) z.classList.toggle("hot", !!hot);
+        if (t) t.textContent = hot ? "松开取消" : "取消倍速";
+      },
+      hide: function () {
+        shown = false; target = 0;
+        var z = document.getElementById("boost-cancel"), t = document.getElementById("boost-cancel-txt");
+        if (z) z.classList.remove("show", "hot");
+        if (t) { t.classList.remove("show"); t.textContent = "取消倍速"; }
+        if (!raf) raf = requestAnimationFrame(frame);
+      }
+    };
+  })();
+
   function makeBoost(getVideo, sceneEl, guard, tipFn, onStart) {
-    var timer = null, boosting = false, s = null;
+    var timer = null, armed = false, mode = "boost", s = null, endedAt = 0, inZone = false;
+    function setTip() {
+      var b = document.getElementById("boost-hint");
+      if (!b) return;
+      var t = b.querySelector("b"), sp = b.querySelector("span");
+      if (t) t.textContent = mode === "unlock" ? "2倍速锁定中" : "2倍速快进中";
+      if (sp) sp.textContent = mode === "unlock" ? "拖到底部凸起 · 松开取消倍速" : "上滑锁定倍速 · 松手恢复";
+      b.classList.add("show");
+    }
     function stop() {
       clearTimeout(timer); timer = null; s = null;
-      if (boosting) { boosting = false; getVideo().playbackRate = settings.speed || 1; hideTopTip(); }
+      if (armed) {
+        armed = false; endedAt = Date.now();
+        if (mode === "boost") getVideo().playbackRate = settings.speed || 1;
+        hideBoostTip(); membrane.hide();
+      }
+    }
+    function lock() {
+      armed = false; endedAt = Date.now(); timer = null; s = null; hideBoostTip(); membrane.hide();
+      settings.speed = 2; saveSettings();
+      getVideo().playbackRate = 2;
+      toast("已锁定 2 倍速（全局生效）");
     }
     sceneEl.addEventListener("touchstart", function (e) {
       stop();
+      inZone = false;
       var video = getVideo();
       if (e.touches.length !== 1 || video.paused || video.readyState < 2) return;
       if (guard && guard(e.target)) return;
+      // 2x already locked globally: the hold becomes an "unlock" gesture that
+      // only reveals the cancel membrane (the rate is already 2).
+      mode = (settings.speed || 1) >= 2 ? "unlock" : "boost";
       s = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       timer = setTimeout(function () {
-        boosting = true; getVideo().playbackRate = 2; showTopTip("2倍速快进中", 0, tipFn ? tipFn() : "");
+        armed = true;
+        if (mode === "boost") getVideo().playbackRate = 2;
+        setTip();
+        // The cancel membrane only exists for the locked-2x unlock gesture;
+        // a plain boost just ends when the finger lifts.
+        if (mode === "unlock") membrane.show();
+        // Freeze the snap container for the whole hold: dragging to the
+        // cancel membrane must never scroll to the next/previous drama.
+        sceneEl.style.overflowY = "hidden";
         if (onStart) onStart();
       }, BOOST_MS);
     }, { passive: true });
     sceneEl.addEventListener("touchmove", function (e) {
-      if (!timer && !boosting) return;
+      if (!timer && !armed) return;
       if (e.touches.length !== 1 || !s) { stop(); return; }
-      if (Math.abs(e.touches[0].clientX - s.x) + Math.abs(e.touches[0].clientY - s.y) > 16) stop();
+      if (!armed && Math.abs(e.touches[0].clientX - s.x) + Math.abs(e.touches[0].clientY - s.y) > 16) { clearTimeout(timer); timer = null; }
     }, { passive: true });
-    sceneEl.addEventListener("touchend", stop, { passive: true });
-    sceneEl.addEventListener("touchcancel", stop, { passive: true });
-    return { stop: stop, isBoosting: function () { return boosting; }, wasBoosting: function () { return boosting; } };
+    // Non-passive: consumes the drag while armed (no scroll/episode switch
+    // underneath). Up-swipe locks; the bottom membrane handles cancelling.
+    sceneEl.addEventListener("touchmove", function (e) {
+      if (!armed || !s || e.touches.length !== 1) return;
+      e.preventDefault();
+      var p = e.touches[0];
+      var dy = p.clientY - s.y;
+      s.y = p.clientY;
+      s.acc = (s.acc || 0) + dy;
+      if (s.acc < -55) { if (mode === "boost") lock(); return; }
+      inZone = mode === "unlock" && p.clientY > window.innerHeight - 120;
+      if (mode === "unlock") membrane.finger(p.clientX, inZone);
+    }, { passive: false });
+    function endTouch() {
+      var wasArmed = armed, wasZone = inZone, m = mode;
+      stop();
+      if (wasArmed && wasZone && m === "unlock") {
+        settings.speed = 1; saveSettings();
+        getVideo().playbackRate = 1;
+        toast("已取消 2 倍速");
+      }
+      if (sceneEl.style.overflowY === "hidden") {
+        setTimeout(function () { sceneEl.style.overflowY = ""; }, 150);
+      }
+    }
+    sceneEl.addEventListener("touchend", endTouch, { passive: true });
+    sceneEl.addEventListener("touchcancel", endTouch, { passive: true });
+    return { stop: stop, isBoosting: function () { return armed; }, wasBoosting: function () { return armed; }, recent: function () { return Date.now() - endedAt < 350; } };
   }
 
   var settings = { quality: "", danmaku: true, auto: true, speed: 1, dmArea: 25, volume: 1, brightness: 1 };
@@ -132,7 +235,7 @@
   // ---------- sheet ----------
   var sheetWrap = $("#sheet-wrap"), sheetBody = $("#sheet-body");
   function openSheet(title, html) { $("#sheet-title").textContent = title; sheetBody.innerHTML = html; sheetWrap.classList.add("open"); fadeImgs(sheetBody); }
-  function closeSheet() { sheetWrap.classList.remove("open"); castLock(false); }
+  function closeSheet() { sheetWrap.classList.remove("open"); castLock(false); loginSheetCleanup(); }
   $("#sheet-close").addEventListener("click", closeSheet);
   $("#sheet-mask").addEventListener("click", closeSheet);
 
@@ -172,19 +275,39 @@
   });
 
   // ---------- danmaku engine ----------
+  // Hongguo danmaku carry [name] emote codes; render the common ones as emoji.
+  var EMOTE = { "开心": "😄", "大笑": "😂", "笑哭": "😅", "捂脸": "🤦", "亲亲": "😘", "调皮": "😜", "吐舌": "😛", "偷笑": "🤭", "狗头": "🐶", "酷": "😎", "惊讶": "😲", "惊喜": "🤩", "流泪": "😢", "哭": "😭", "生气": "😠", "发怒": "😡", "发抖": "🥶", "汗": "😓", "爱心": "❤️", "比心": "🫶", "点赞": "👍", "赞": "👍", "打call": "📣", "鼓掌": "👏", "抱拳": "🙏", "握手": "🤝", "OK": "👌", "玫瑰": "🌹", "礼物": "🎁", "干杯": "🍻", "咖啡": "☕", "西瓜": "🍉", "蛋糕": "🎂", "月亮": "🌙", "太阳": "☀️", "彩虹": "🌈", "火箭": "🚀", "麦克风": "🎤", "再见": "👋", "猪头": "🐷", "熊": "🐻", "烟花": "🎆", "灯泡": "💡", "飞机": "✈️", "钱": "💰", "彩带": "🎊", "困": "😪", "睡": "😴", "思考": "🤔", "嘘": "🤫", "吐": "🤮", "恶心": "🤢", "恐惧": "😱", "冷汗": "😰", "无奈": "🥲", "委屈": "🥺", "生气吗": "😤", "加油": "💪", "强": "💪", "弱": "👎", "别急": "🐢", "火": "🔥", "爆": "💥", "星星": "⭐", "流星": "🌠", "心动": "💓", "心碎": "💔", "尬笑": "😅", "嘿": "😁", "呲牙": "😁", "白眼": "🙄", "抠鼻": "🤨", "摸头": "🫳", "捏": "🤏", "耶": "✌️", "胜利": "✌️", "爱你": "🥰", "喜欢": "😍", "色": "😍", "呆": "😶", "无语": "😑", "口罩": "😷", "疫苗": "💉", "药": "💊" };
+  function emoteText(t) {
+    return String(t == null ? "" : t).replace(/\[([^\[\]\n]{1,8})\]/g, function (m, k) { return EMOTE[k] || EMOTE[k.toLowerCase()] || m; });
+  }
   function makeDanmaku(layer, getVideo) {
     var items = [], ptr = 0, loadSeq = 0;
-    var LANES = [8, 16, 24, 32, 40, 48, 56, 64], lastLane = [0, 0, 0, 0, 0, 0, 0, 0];
+    var LANES = [8, 16, 24, 32, 40, 48, 56, 64], laneTail = [null, null, null, null, null, null, null, null];
+    var DM_SPEED = 110; // px per second — constant, so spacing is preserved
     function spawn(text) {
       if (!text) return;
-      var bi = 0;
-      for (var k = 1; k < LANES.length; k++) if (lastLane[k] < lastLane[bi]) bi = k;
-      lastLane[bi] = Date.now();
+      var vw = layer.clientWidth || window.innerWidth || 360;
+      // A lane is free only once its previous item's right edge is fully on
+      // screen with a gap; same-speed flight means that gap never closes.
+      var bi = -1;
+      for (var k = 0; k < LANES.length; k++) {
+        var prev = laneTail[k];
+        if (!prev || !prev.isConnected) { bi = k; break; }
+        if (prev.getBoundingClientRect().right < vw - 30) { bi = k; break; }
+      }
+      if (bi < 0) return; // all lanes busy: drop instead of stacking on top
       var s = document.createElement("span");
-      s.textContent = text;
-      s.style.top = LANES[bi] + "%";
+      s.textContent = emoteText(text);
+      s.style.visibility = "hidden";
       layer.appendChild(s);
-      setTimeout(function () { s.remove(); }, 12500);
+      var w = s.offsetWidth || 120;
+      var dur = Math.min(16, Math.max(6, (vw + w) / DM_SPEED));
+      s.style.visibility = "";
+      s.style.top = LANES[bi] + "%";
+      s.style.animationDuration = dur + "s";
+      s.classList.add("dm-fly");
+      laneTail[bi] = s;
+      setTimeout(function () { if (laneTail[bi] === s) laneTail[bi] = null; s.remove(); }, dur * 1000 + 400);
     }
     return {
       load: async function (seriesId, vid, durationMs) {
@@ -395,6 +518,8 @@
     el.dataset.idx = String(idx);
     var tags = (d.tags || []).slice(0, 3).map(function (t) { return "<span>" + esc(t) + "</span>"; }).join("");
     var heat = num(d.play_count) ? '<small>' + num(d.play_count) + '人在看</small>' : "";
+    // Favourite button shows the real collect count when the API provides it.
+    var favLabel = d.favorite_text ? '<small class="fav-n">' + esc(String(d.favorite_text)) + '</small>' : heat;
     el.innerHTML =
       '<div class="fi-scene"><div class="bg" style="background-image:' + (coverOf(d) ? 'url(' + esc(coverOf(d)) + '),linear-gradient(160deg,' + c[0] + ',' + c[1] + ')' : 'linear-gradient(160deg,' + c[0] + ',' + c[1] + ')') + '"></div>' +
       '<div class="fi-danmaku-layer" style="position:absolute;top:0;left:0;right:0;height:var(--dm-area,25%);z-index:3;pointer-events:none;overflow:hidden"></div></div>' +
@@ -407,7 +532,7 @@
       '<button class="fi-act" data-act="cast">' + ic("cast") + '</button>' +
       '<button class="fi-act" data-act="cmt">' + ic("msg") + '</button>' +
       '<button class="fi-act" data-act="rank">' + ic("trophy") + '</button>' +
-      '<button class="fi-act" data-act="fav">' + ic("star") + heat + '</button>' +
+      '<button class="fi-act" data-act="fav">' + ic("star") + favLabel + '</button>' +
       '</div>' +
       '<div class="fi-play"><button class="icon-btn">' + ic("play") + '</button></div>';
     el.querySelector(".fi-danmaku").addEventListener("click", function () {
@@ -1160,6 +1285,9 @@
       pd.info = info;
       pDanmaku.load(pd.drama.series_id, vid, 300000); // don't wait for metadata
       pVideo.src = info.path;
+      // load() resets playbackRate to defaultPlaybackRate, so the chosen global
+      // speed must live on defaultPlaybackRate too, not just playbackRate.
+      pVideo.defaultPlaybackRate = settings.speed || 1;
       pVideo.playbackRate = settings.speed || 1;
       $("#p-quality-n").textContent = info.quality || "自动";
       pVideo.onloadedmetadata = function () {
@@ -1183,6 +1311,11 @@
   }
   function playP() {
     if (castState.casting) { toast("投屏中，节目正在电视上播放"); return; }
+    // Single choke point for starting playback: re-apply the global speed here
+    // so a swapPVideo fast-path or a post-load() reset can never leave the
+    // video at 1x while the label reads 2x.
+    pVideo.defaultPlaybackRate = settings.speed || 1;
+    pVideo.playbackRate = settings.speed || 1;
     var p = pVideo.play();
     if (p && p.catch) p.catch(function () { $("#p-center-play").classList.add("show"); });
   }
@@ -1298,6 +1431,8 @@
     }, { passive: true });
     // Live swipe hint: show the target action while the finger is still down.
     pScene.addEventListener("touchmove", function (e) {
+      // While boosting, vertical drags belong to the lock/cancel gesture.
+      if (pBoost && pBoost.isBoosting()) { start = null; pHud.classList.remove("on"); return; }
       if (!start || e.touches.length !== 1) { pHud.classList.remove("on"); return; }
       var p = e.touches[0], dx = p.clientX - start.x, dy = p.clientY - start.y;
       var adx = Math.abs(dx), ady = Math.abs(dy), txt = "";
@@ -1333,8 +1468,9 @@
     }, { passive: true });
     pScene.addEventListener("touchend", function (e) {
       pHud.classList.remove("on");
-      // releasing after a long-press boost must not toggle the controls
-      if (pBoost && pBoost.isBoosting()) { start = null; return; }
+      // releasing after a long-press boost (or its lock/cancel swipe) must not
+      // toggle controls or switch episodes
+      if (pBoost && (pBoost.isBoosting() || pBoost.recent())) { start = null; return; }
       if (!start) {
         if (e.target.closest(".p-bottom, .p-top")) armHide();
         return;
@@ -1866,13 +2002,13 @@
       '<div class="set-row">' + ic("grid") + '<span class="sr-label">默认画质</span><span class="sr-val" data-sw="quality">' + (settings.quality || "自动") + ic("chev") + "</span></div>" +
       '<div class="set-row">' + ic("play") + '<span class="sr-label">自动播下一集</span><span class="switch' + (settings.auto ? " on" : "") + '" data-sw="auto"></span></div>' +
       '<div class="set-row">' + ic("danmaku") + '<span class="sr-label">弹幕</span><span class="switch' + (settings.danmaku ? " on" : "") + '" data-sw="danmaku"></span></div>' +
-      '<button class="set-row" data-m="about">' + ic("gear") + '<span class="sr-label">关于</span><span class="sr-val">红果漫剧' + ic("chev") + "</span></button>" +
+      '<button class="set-row" data-m="update">' + ic("gear") + '<span class="sr-label">检查更新</span><span class="sr-val" id="mn-ver">v1.0' + ic("chev") + "</span></button>" +
       "</div>";
     page.querySelectorAll(".set-row").forEach(function (r) {
       r.addEventListener("click", function () {
         var m = r.dataset.m, sw = r.querySelector("[data-sw]");
         if (m === "history" || m === "favorites" || m === "follows") openMyList(m);
-        if (m === "about") toast("红果漫剧 · 本地核心版");
+        if (m === "update") checkUpdateNow();
         if (sw && sw.dataset.sw === "quality") sheetQuality(function (v) { settings.quality = v; saveSettings(); renderMine(); });
         if (sw && sw.dataset.sw === "auto") { settings.auto = !settings.auto; saveSettings(); renderMine(); }
         if (sw && sw.dataset.sw === "danmaku") { settings.danmaku = !settings.danmaku; saveSettings(); renderMine(); }
@@ -1896,7 +2032,214 @@
       var p = await getJSON("/api/v1/account/profile", {});
       if (p && (p.nickname || p.name)) { $("#mn-name").textContent = p.nickname || p.name; $("#mn-login").textContent = "已登录"; }
     } catch (e) { }
-    $("#mn-login").addEventListener("click", function () { toast("请在网页端或 TV 端扫码登录"); });
+    $("#mn-login").addEventListener("click", function () {
+      if ($("#mn-login").textContent === "已登录") { toast("已登录当前账号"); return; }
+      openLogin();
+    });
+    renderUpdateRow();
+  }
+  // ---------- login sheet: phone code + QR ----------
+  var qrTimer = null, qrId = "", qrDeadline = 0;
+  function stopQr() { if (qrTimer) { clearInterval(qrTimer); qrTimer = null; } }
+  function cancelQrAttempt() {
+    stopQr();
+    var id = qrId; qrId = "";
+    if (id) postJSON("/api/v1/account/qr/cancel", { id: id }).catch(function () { });
+  }
+  function loginSheetCleanup() {
+    cancelQrAttempt();
+    stopSms();
+    if (smsActive) { smsActive = false; smsPhase = ""; postJSON("/api/v1/account/cancel", {}).catch(function () { }); }
+  }
+  function qrRender(s) {
+    var stage = $("#qr-stage"), tip = $("#qr-tip");
+    if (!stage || !tip) return;
+    var q = (s && s.qr_login) || {};
+    if (s && s.logged_in) { stage.innerHTML = '<div class="qr-ok">✓</div>'; tip.textContent = "登录成功"; return; }
+    if (q.state === "expired" || q.state === "failed" || q.state === "cancelled") {
+      stopQr();
+      stage.innerHTML = '<button class="qr-retry" id="qr-retry">重新获取二维码</button>';
+      var b = $("#qr-retry"); if (b) b.addEventListener("click", startQr);
+      tip.textContent = q.error || (q.state === "expired" ? "二维码已过期，请点击重试" : "登录已中断，请重试");
+      return;
+    }
+    if (q.image) stage.innerHTML = '<img src="' + q.image + '" alt="登录二维码">';
+    var msg = { preparing: "正在获取二维码…", pending: "请用红果 App 扫描二维码", scanned: "已扫描，请在手机上确认", processing: "正在登录…" };
+    tip.textContent = msg[q.state] || q.error || "正在获取二维码…";
+  }
+  async function startQr() {
+    var pane = $("#lg-qr");
+    if (!pane) return;
+    pane.innerHTML = '<div class="qr-box"><div class="qr-stage" id="qr-stage"><div class="qr-spin"></div></div>' +
+      '<div class="qr-tip" id="qr-tip">正在获取二维码…</div>' +
+      '<div class="qr-sub">打开「红果免费短剧」App<br>点「我的」→ 右上角「扫一扫」→ 对准二维码</div></div>';
+    stopQr(); qrId = "";
+    var st;
+    try { st = await postJSON("/api/v1/account/qr/start", {}); }
+    catch (e) { var t0 = $("#qr-tip"); if (t0) t0.textContent = "二维码获取失败：" + (e.message || "请重试"); return; }
+    var q = st.qr_login || {};
+    qrId = q.id || "";
+    qrDeadline = Date.now() + 10 * 60 * 1000;
+    qrRender(st);
+    if (!qrId) return;
+    qrTimer = setInterval(function () {
+      if (!qrId || Date.now() > qrDeadline) { stopQr(); return; }
+      getJSON("/api/v1/account/qr/status", { id: qrId }).then(function (s) {
+        qrRender(s);
+        if (s.logged_in) {
+          stopQr(); qrId = "";
+          toast("登录成功");
+          setTimeout(function () { closeSheet(); renderMine(); }, 800);
+        }
+      }).catch(function () { stopQr(); var t = $("#qr-tip"); if (t) t.textContent = "登录已中断，请重新获取二维码"; });
+    }, 1800);
+  }
+  // Phone + SMS code login. The core validates the number itself, so the
+  // sheet only pre-checks the mainland 11-digit shape for a friendly hint.
+  var smsTimer = null, smsActive = false, smsBusy = false, smsCountdownUntil = 0, smsPhase = "";
+  function stopSms() { if (smsTimer) { clearInterval(smsTimer); smsTimer = null; } }
+  function smsMsg(text, isErr) {
+    var m = $("#sms-msg");
+    if (m) { m.textContent = text || ""; m.className = "sms-msg" + (isErr ? " err" : ""); }
+  }
+  function smsSendLabel() {
+    var b = $("#sms-send"); if (!b) return;
+    var left = Math.ceil((smsCountdownUntil - Date.now()) / 1000);
+    if (left > 0) { b.disabled = true; b.textContent = left + "s 后重发"; }
+    else { b.disabled = smsBusy; b.textContent = smsPhase === "code" ? "重新发送" : "获取验证码"; }
+  }
+  function setSmsButtons() {
+    var s = $("#sms-send"), l = $("#sms-submit");
+    if (s) smsSendLabel();
+    if (l) { l.disabled = smsBusy; l.textContent = smsBusy ? "登录中…" : "登 录"; }
+  }
+  function startSmsTick() {
+    stopSms();
+    smsTimer = setInterval(function () { smsSendLabel(); if (Date.now() >= smsCountdownUntil) stopSms(); }, 500);
+  }
+  function smsFormHtml() {
+    return '<div class="sms-box">' +
+      '<input class="sms-input" id="sms-phone" type="tel" inputmode="numeric" maxlength="13" placeholder="手机号" autocomplete="off">' +
+      '<div class="sms-row"><input class="sms-input" id="sms-code" type="tel" inputmode="numeric" maxlength="8" placeholder="短信验证码" autocomplete="off">' +
+      '<button class="sms-send" id="sms-send">获取验证码</button></div>' +
+      '<button class="sms-login" id="sms-submit">登 录</button>' +
+      '<div class="sms-msg" id="sms-msg"></div>' +
+      '<div class="qr-sub">验证码由红果官方通道下发，仅用于登录你的红果账号。</div></div>';
+  }
+  function bindSmsForm() {
+    smsSendLabel();
+    $("#sms-send").addEventListener("click", function () {
+      if (smsBusy || Date.now() < smsCountdownUntil) return;
+      var phone = ($("#sms-phone").value || "").trim();
+      if (!/^1\d{10}$/.test(phone)) { smsMsg("请输入正确的 11 位手机号", true); return; }
+      smsBusy = true; setSmsButtons(); smsMsg("");
+      postJSON("/api/v1/account/send-code", { phone: phone, country_code: "" }).then(function (d) {
+        smsBusy = false; smsActive = true; smsPhase = d.phase || "code";
+        smsCountdownUntil = Date.now() + (Number(d.retry_after) || 60) * 1000;
+        if (d.sms_state === "sent") smsMsg("验证码已发送，请查收短信");
+        else if (d.sms_state === "limited") smsMsg("发送过于频繁，请稍后再试", true);
+        startSmsTick(); setSmsButtons();
+      }).catch(function (e) { smsBusy = false; setSmsButtons(); smsMsg(e.message || "验证码发送失败", true); });
+    });
+    $("#sms-submit").addEventListener("click", function () {
+      if (smsBusy) return;
+      var phone = ($("#sms-phone").value || "").trim();
+      var code = ($("#sms-code").value || "").trim();
+      if (!/^1\d{10}$/.test(phone)) { smsMsg("请输入正确的 11 位手机号", true); return; }
+      if (!/^\d{4,8}$/.test(code)) { smsMsg("请输入 4-8 位短信验证码", true); return; }
+      smsBusy = true; setSmsButtons(); smsMsg("");
+      postJSON("/api/v1/account/login", { phone: phone, country_code: "", code: code }).then(function (d) {
+        smsBusy = false;
+        if (d.logged_in) {
+          smsActive = false; smsPhase = "";
+          toast("登录成功");
+          setTimeout(function () { closeSheet(); renderMine(); }, 600);
+          return;
+        }
+        setSmsButtons();
+        if (d.phase === "mfa") { smsPhase = "mfa"; renderMfa(d); return; }
+        smsMsg("验证码不正确，请重新输入", true);
+      }).catch(function (e) { smsBusy = false; setSmsButtons(); smsMsg(e.message || "登录失败", true); });
+    });
+  }
+  function renderMfa(d) {
+    var pane = $("#lg-phone");
+    if (!pane) return;
+    pane.innerHTML = '<div class="sms-box">' +
+      '<div class="mfa-card">红果要求短信验证<br>请用本机发送短信<br>内容：<b>' + esc(d.sms_content || "") + '</b><br>发送至：<b>' + esc(d.sms_number || "") + "</b></div>" +
+      '<button class="sms-login" id="mfa-sent">我已发送</button>' +
+      '<div class="sms-msg" id="sms-msg"></div>' +
+      '<button class="sms-send" id="mfa-back" style="width:100%;padding:12px 0">返回</button></div>';
+    $("#mfa-sent").addEventListener("click", function () {
+      if (smsBusy) return;
+      smsBusy = true; smsMsg("");
+      postJSON("/api/v1/account/verify", {}).then(function (s) {
+        smsBusy = false;
+        if (s.logged_in) {
+          smsActive = false; smsPhase = "";
+          toast("登录成功");
+          setTimeout(function () { closeSheet(); renderMine(); }, 600);
+          return;
+        }
+        smsMsg("尚未检测到短信，请确认已发送后再点一次");
+      }).catch(function (e) { smsBusy = false; smsMsg(e.message || "验证失败，请重试", true); });
+    });
+    $("#mfa-back").addEventListener("click", function () {
+      postJSON("/api/v1/account/cancel", {}).catch(function () { });
+      smsActive = false; smsPhase = "";
+      $("#lg-phone").innerHTML = smsFormHtml();
+      bindSmsForm();
+    });
+  }
+  function openLogin() {
+    openSheet("登录红果", '<div class="lg-tabs"><button class="lg-tab on" data-t="phone">手机号登录</button><button class="lg-tab" data-t="qr">扫码登录</button></div>' +
+      '<div id="lg-phone">' + smsFormHtml() + '</div><div id="lg-qr" style="display:none"></div>');
+    bindSmsForm();
+    document.querySelectorAll(".lg-tab").forEach(function (t) {
+      t.addEventListener("click", function () {
+        var qr = t.dataset.t === "qr";
+        document.querySelectorAll(".lg-tab").forEach(function (x) { x.classList.toggle("on", x === t); });
+        $("#lg-phone").style.display = qr ? "none" : "";
+        $("#lg-qr").style.display = qr ? "" : "none";
+        if (qr) startQr();
+        else cancelQrAttempt();
+      });
+    });
+  }
+  // ---------- app updates (native HongguoTVUpdates bridge) ----------
+  function updStatus() {
+    try { return JSON.parse(window.HongguoTVUpdates.getStatus()) || {}; } catch (e) { return {}; }
+  }
+  function renderUpdateRow() {
+    var el = $("#mn-ver");
+    if (!el) return;
+    var d = updStatus();
+    if (!d.state) { el.textContent = "v1.0"; return; }
+    if (d.state === "available") el.textContent = "发现新版 " + (d.latest_version || "");
+    else if (d.state === "ready") el.textContent = "可安装 " + (d.latest_version || "");
+    else if (d.state === "downloading") el.textContent = "下载中…";
+    else if (d.state === "installing") el.textContent = "安装中…";
+    else el.textContent = d.current_version || "v1.0";
+  }
+  var updWatch = 0;
+  function checkUpdateNow() {
+    if (!window.HongguoTVUpdates) { toast("检查更新仅在 App 内可用"); return; }
+    var d0 = updStatus();
+    if (d0.state === "downloading" || d0.state === "installing") { toast(d0.message || "更新进行中"); return; }
+    if (d0.state === "available" || d0.state === "ready") { toast("新版本已就绪，请按提示安装"); return; }
+    toast("正在检查更新…");
+    window.HongguoTVUpdates.check();
+    clearInterval(updWatch);
+    updWatch = setInterval(function () {
+      var d = updStatus();
+      if (d.state === "checking") return;
+      clearInterval(updWatch); updWatch = 0;
+      renderUpdateRow();
+      if (d.state === "current") toast("已是最新版本 " + (d.current_version || ""));
+      else if (d.state === "error" || d.state === "unsupported" || d.state === "incompatible") toast(d.message || "检查更新失败");
+      else if (d.state === "ready") toast("安装包已就绪，请按提示安装");
+    }, 800);
+    setTimeout(function () { if (updWatch) { clearInterval(updWatch); updWatch = 0; renderUpdateRow(); } }, 30000);
   }
   async function openMyList(kind) {
     openSheet(kind === "history" ? "观看历史" : kind === "favorites" ? "我的收藏" : "我的追更", skGrid(4));
@@ -1907,6 +2250,9 @@
         var d = await getJSON("/api/v1/library", {});
         var entries = d.entries || [];
         items = entries.filter(function (e) { return kind === "history" ? e.last_played_at : e.favorite_at; });
+        // Most-recent first: last_played_at / favorite_at are epoch-ms numbers.
+        var stampKey = kind === "history" ? "last_played_at" : "favorite_at";
+        items.sort(function (a, b) { return (Number(b[stampKey]) || 0) - (Number(a[stampKey]) || 0); });
       }
     } catch (e) { openSheet("提示", '<div class="loading">需要登录账号后查看</div>'); return; }
     if (!items.length) { openSheet(kind === "history" ? "观看历史" : kind === "favorites" ? "我的收藏" : "我的追更", '<div class="loading">还没有内容，去逛逛吧</div>'); return; }
@@ -2034,6 +2380,13 @@
         Object.assign(settings, d.settings);
         localStorage.setItem("hg-mobile", JSON.stringify(settings));
         document.documentElement.style.setProperty("--dm-area", (settings.dmArea || 25) + "%");
+        // The feed may already be playing by the time this async fetch lands
+        // (fresh WebView origin wipes localStorage every cold start); push
+        // the restored speed into every live video element now.
+        [typeof pVideo !== "undefined" && pVideo, typeof pVideoB !== "undefined" && pVideoB,
+         typeof feedVideo !== "undefined" && feedVideo, typeof feedVideoB !== "undefined" && feedVideoB]
+          .forEach(function (v) { if (v) v.playbackRate = settings.speed || 1; });
+        speedLabel();
       }
     } catch (e) { }
   }
@@ -2064,6 +2417,12 @@
   // showing the exit dialog; the mobile UI must answer through that bridge.
   window.HongguoTV = window.HongguoTV || {};
   window.HongguoTV.requestBack = function () { return HongguoMobileBack(); };
+  // Native AppUpdater consults canShowAppUpdate() before every prompt and
+  // only fires the startup check once the page opts in via setPromptAllowed.
+  window.HongguoTV.canShowAppUpdate = function () {
+    return !sheetWrap.classList.contains("open") && !player.classList.contains("open") && !$("#rank-page").classList.contains("open");
+  };
+  if (window.HongguoTVUpdates) { try { window.HongguoTVUpdates.setPromptAllowed(true); } catch (e) { } }
   // MainActivity calls this instead of showing the old exit dialog: the first
   // back swipe shows a centered top pill, a second one within 3s exits.
   window.HongguoTV.showExitHint = function () { showTopTip("再左滑一次退出应用", 2600); };

@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import zipfile
 
-PUBLIC_REPOSITORY = 'aston314/hongguo-tv-releases'
+PUBLIC_REPOSITORY = 'jifenghahacao/hongguo-tv'
 
 def generate(apk, version, code, min_sdk, notes, variant='standard', library_source=None):
     if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version) or code <= 0:

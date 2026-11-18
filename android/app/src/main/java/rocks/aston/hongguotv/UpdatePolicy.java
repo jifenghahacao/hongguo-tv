@@ -6,7 +6,8 @@ import java.util.Locale;
 
 /** Rules shared by checking, downloading and the final installer hand-off. */
 final class UpdatePolicy {
-    static final String REPOSITORY = "aston314/hongguo-tv-releases";
+    // Fork distribution channel: manifest + release APK assets live in our own repo.
+    static final String REPOSITORY = "jifenghahacao/hongguo-tv";
     static String manifestUrl(String variant) {
         return "https://raw.githubusercontent.com/" + REPOSITORY + "/main/" +
                 ("android5".equals(variant) ? "update-android5.json" : "mpv".equals(variant) ? "update-mpv.json" : "update.json");

@@ -71,7 +71,9 @@ public class MainActivity extends Activity {
     private int routedVerticalKeys;
     private int routedHorizontalKeys;
     private int routedConfirmKeys;
-    private AnimatedVectorDrawable startupAnimation;
+    private ImageView startupRing;
+    private android.animation.ObjectAnimator ringAnimator;
+    private boolean ringSpinning;
     private final Runnable startupPanelFallback = this::hideStartupPanel;
     private AppUpdater appUpdater;
     private BroadcastReceiver noisyReceiver;
@@ -332,17 +334,25 @@ public class MainActivity extends Activity {
         startupPanel.setPadding(startupInset, startupInset, startupInset, startupInset);
         startupPanel.setBackgroundColor(0xFF0C0D12);
         ImageView startupLogo = new ImageView(this);
-        startupAnimation = (AnimatedVectorDrawable) getDrawable(R.drawable.startup_loading);
-        startupLogo.setImageDrawable(startupAnimation);
+        startupLogo.setImageResource(R.drawable.startup_mark_core);
+        FrameLayout logoBox = new FrameLayout(this);
+        logoBox.addView(startupLogo, new FrameLayout.LayoutParams(-1, -1));
+        // The ring spins as a plain view rotation: AnimatedVectorDrawable
+        // silently fails to start on several OEM WebView-less devices.
+        startupRing = new ImageView(this);
+        startupRing.setImageResource(R.drawable.startup_ring);
+        logoBox.addView(startupRing, new FrameLayout.LayoutParams(-1, -1));
         int logoSize = Math.round(72 * getResources().getDisplayMetrics().density);
         LinearLayout.LayoutParams logoLayout = new LinearLayout.LayoutParams(logoSize, logoSize);
         logoLayout.bottomMargin = Math.round(20 * getResources().getDisplayMetrics().density);
-        startupPanel.addView(startupLogo, logoLayout);
+        startupPanel.addView(logoBox, logoLayout);
         startupMessage = new TextView(this);
         startupMessage.setTextColor(Color.WHITE);
         startupMessage.setTextSize(22);
         startupMessage.setGravity(Gravity.CENTER);
         startupPanel.addView(startupMessage, new LinearLayout.LayoutParams(-2, -2));
+        // The loading affordance is the ring animating around the logo edge;
+        // no extra spinner widget below it.
         startupRetry = new Button(this);
         startupRetry.setText("重试");
         startupRetry.setOnClickListener(view -> {
@@ -415,17 +425,33 @@ public class MainActivity extends Activity {
         return true;
     }
 
+    private void startLogoSpin() {
+        if (startupRing == null || ringSpinning || destroyed || isFinishing()) return;
+        ringSpinning = true;
+        ringAnimator = android.animation.ObjectAnimator.ofFloat(startupRing, "rotation", 0f, 360f);
+        ringAnimator.setDuration(1400);
+        ringAnimator.setInterpolator(new android.view.animation.LinearInterpolator());
+        ringAnimator.setRepeatMode(android.animation.ValueAnimator.RESTART);
+        ringAnimator.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        ringAnimator.start();
+    }
+
+    private void stopLogoSpin() {
+        ringSpinning = false;
+        if (ringAnimator != null) ringAnimator.cancel();
+    }
+
     private void hideStartupPanel() {
         if (destroyed || rendererGone || pageLoadFailed || startupPanel == null || startupRetry == null) return;
         if (startupRetry.getVisibility() == View.VISIBLE) return; // keep failure states
         startupPanel.setVisibility(View.GONE);
-        if (startupAnimation != null) startupAnimation.stop();
+        stopLogoSpin();
     }
 
     private void showRendererFailure() {
         if (destroyed || isFinishing()) return;
         startupPanel.removeCallbacks(startupPanelFallback);
-        startupAnimation.stop();
+        stopLogoSpin();
         startupMessage.setText("界面运行异常，播放已停止，请重试");
         startupPanel.setVisibility(View.VISIBLE);
         startupRetry.setVisibility(View.VISIBLE);
@@ -437,7 +463,7 @@ public class MainActivity extends Activity {
         rendererRecoveryScheduled = true;
         startupMessage.setText("界面运行异常，正在恢复…");
         startupRetry.setVisibility(View.GONE);
-        startupAnimation.start();
+        startLogoSpin();
         // Leave the renderer callback before recreating the Activity. The Go
         // service and its account/local records remain alive across recreation.
         startupPanel.post(() -> {
@@ -456,7 +482,7 @@ public class MainActivity extends Activity {
         startupPanel.removeCallbacks(startupPanelFallback);
         startupMessage.setText("本机服务连接失败，请重试");
         pageReady = false;
-        startupAnimation.stop();
+        stopLogoSpin();
         startupRetry.setVisibility(View.VISIBLE);
         startupPanel.setVisibility(View.VISIBLE);
         startupRetry.requestFocus();
@@ -464,12 +490,17 @@ public class MainActivity extends Activity {
 
     private void waitForCore() {
         if (startupThread != null && startupThread.isAlive()) return;
-        // Normal startup shows only the animated logo; text appears on failure.
+        // Normal startup shows only the logo with its animated edge ring.
         startupPanel.removeCallbacks(startupPanelFallback);
         startupMessage.setText("");
         startupRetry.setVisibility(View.GONE);
         startupPanel.setVisibility(View.VISIBLE);
-        if (activityForeground) startupAnimation.start();
+        startupPanel.post(() -> {
+            if (!destroyed && activityForeground && startupRing != null
+                    && startupPanel.getVisibility() == View.VISIBLE && startupRetry.getVisibility() != View.VISIBLE) {
+                startLogoSpin();
+            }
+        });
         startupThread = new Thread(() -> {
             long deadline = SystemClock.elapsedRealtime() + 30000;
             CoreEndpoint ready = null;
@@ -495,7 +526,8 @@ public class MainActivity extends Activity {
                             if (status.optBoolean("ok") && candidate.matches(status.optString("service"),
                                     status.optString("instance_id"), status.optString("version"), BuildConfig.CORE_VERSION)
                                     && candidate == CoreService.endpoint()) ready = candidate;
-                            else { failure = "本机服务版本不匹配，请重试"; break; }
+                            // else: a stale/other local service answered. Keep
+                            // polling until our own process is the one ready.
                         }
                     }
                 } catch (Exception ignored) {
@@ -511,7 +543,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (destroyed || rendererGone || webView == null || isFinishing()) return;
                 if (coreReady != null) {
-                    if (coreReady != CoreService.endpoint()) { showStartupFailure(); return; }
+                    if (coreReady != CoreService.endpoint()) { waitForCore(); return; }
                     coreUrl = coreReady.url;
                     // Phones get the immersive mobile UI; TVs keep the remote-driven app.
                     webView.loadUrl(DeviceDiagnostics.isTelevision(MainActivity.this)
@@ -882,7 +914,7 @@ public class MainActivity extends Activity {
         searchNavigationState.reset();
         completeAccountEditing();
         completeSearchEditing(true);
-        if (startupAnimation != null) startupAnimation.stop();
+        stopLogoSpin();
         if (playerBridge != null) playerBridge.onPause();
         if (webView != null) {
             webView.evaluateJavascript("window.HongguoTV && window.HongguoTV.pauseForBackground()", null);
@@ -899,7 +931,7 @@ public class MainActivity extends Activity {
         // covers the case where no new `playing` callback is emitted after a
         // short background/foreground transition.
         syncKeepScreenOn();
-        if (startupAnimation != null && startupPanel.getVisibility() == View.VISIBLE && startupRetry.getVisibility() != View.VISIBLE) startupAnimation.start();
+        if (startupRing != null && startupPanel.getVisibility() == View.VISIBLE && startupRetry.getVisibility() != View.VISIBLE) startLogoSpin();
         applyFullscreen();
         if (webView != null) {
             webView.onResume();
@@ -934,7 +966,7 @@ public class MainActivity extends Activity {
             homeChannelManager.destroy();
             homeChannelManager = null;
         }
-        if (startupAnimation != null) startupAnimation.stop();
+        stopLogoSpin();
         if (startupThread != null) startupThread.interrupt();
         View decor = getWindow().getDecorView();
         decor.removeCallbacks(restoreFullscreen);
