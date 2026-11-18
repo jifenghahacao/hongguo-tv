@@ -2,12 +2,12 @@
   "schema": 1,
   "variant": "standard",
   "package_name": "rocks.aston.hongguotv",
-  "version_code": 103,
-  "version_name": "1.0.3",
+  "version_code": 104,
+  "version_name": "1.0.4",
   "min_sdk": 23,
-  "size": 15457276,
-  "sha256": "ce8e9b6efac04e14f76557ef2aa3902f1c116ab1e87430df6d3404c176e2ae69",
-  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.3/hongguo-tv-1.0.3.apk",
-  "release_notes": "### 修复\n- 「检查更新」只提示一句就结束了：已有缓存的\"发现新版本\"状态会跳过实际流程。现在手动检查必定重新走完整链路——弹出新版本对话框（即使之前点过\"以后再说\"）→ 下载 → SHA-256+签名校验 → 拉起系统安装",
-  "published_at": "2026-11-18T16:04:59.720331+00:00"
+  "size": 15457402,
+  "sha256": "d6a8a89e46ed540ff0bf072e551cce1c79bbd55db4f6760e5cdcbc7737bb8a38",
+  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.4/hongguo-tv-1.0.4.apk",
+  "release_notes": "### 优化\n- 「我的」页排版重构：设置项按「我的内容 / 播放设置 / 通用」三组卡片分组，不再全部挤在一张长卡里\n- 每行标签统一左对齐、值（全部记录 / 版本号 / 画质等）统一右对齐，行内不再粘连",
+  "published_at": "2026-11-18T16:17:33.892102+00:00"
 }
