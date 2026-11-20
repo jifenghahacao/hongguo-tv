@@ -2,7 +2,7 @@ plugins {
     id "com.android.application"
 }
 
-def appVersion = "1.0.6"
+def appVersion = "1.0.7"
 def android5Compat = providers.gradleProperty("android5Compat").orNull == "true"
 def mpvVersionCode = 100
 def coreVersion = System.getenv("HONGGUO_CORE_VERSION") ?: "${appVersion}-dev"
@@ -23,7 +23,7 @@ android {
         applicationId "rocks.aston.hongguotv"
         minSdk 23
         targetSdk 35
-        versionCode 106
+        versionCode 107
         versionName appVersion
         testInstrumentationRunner "rocks.aston.hongguotv.UpdateApkSaverInstrumentation"
         buildConfigField "String", "CORE_VERSION", "\"${coreVersion}\""

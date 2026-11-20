@@ -3,6 +3,11 @@
 版本号规则：`主.次.修订`（对应 GitHub Release tag `v<版本>`，`android/app/build.gradle` 里的 `appVersion`）。
 每次发版运行 `scripts/release_android.ps1`：构建签名 APK → 发布 GitHub Release（附安装包与本版本说明）→ 更新 `update.json` 推送通道。已安装的用户会在启动时（每天最多一次）或「我的 → 检查更新」收到提示并自动下载安装。
 
+## v1.0.7（2026-11-20）
+
+### 修复
+- 无法播放：红果服务端变更导致 v5 播放接口返回空响应，现已自动回退 video_tab 通道恢复取流（合入上游 v0.2.176 修复）
+
 ## v1.0.6（2026-11-19）
 
 ### 优化
