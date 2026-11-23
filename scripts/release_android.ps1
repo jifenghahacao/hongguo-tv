@@ -60,21 +60,23 @@ $notesFile = Join-Path $env:TEMP "hongguo-notes-$Version.txt"
 [System.IO.File]::WriteAllText($notesFile, (($notes -join "`n").Trim()), (New-Object System.Text.UTF8Encoding($false)))
 
 # --- GitHub Release -------------------------------------------------------
+# An empty -Proxy means "direct": curl rejects "-x ''", so drop the flag.
+$px = if ($Proxy) { @("-x", $Proxy) } else { @() }
 $tag = "v$Version"
 # ReadAllText (not Get-Content) so the body stays a plain string for ConvertTo-Json.
 $body = @{ tag_name = $tag; name = "红果漫剧 $tag"; body = [System.IO.File]::ReadAllText($notesFile); draft = $false; prerelease = $false } | ConvertTo-Json
 $bodyFile = Join-Path $env:TEMP "hongguo-release-$Version.json"
 [System.IO.File]::WriteAllText($bodyFile, $body, (New-Object System.Text.UTF8Encoding($false)))
 # Reuse an existing release for this tag (reruns after a partial failure).
-$rel = (& curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" "$api/releases/tags/$tag") | ConvertFrom-Json
+$rel = (& curl.exe -s @px -H "Authorization: token $env:GH_TOKEN" "$api/releases/tags/$tag") | ConvertFrom-Json
 if ($rel.id) {
     # Refresh the body too: earlier runs may have posted mojibake notes.
     $patch = @{ body = [System.IO.File]::ReadAllText($notesFile) } | ConvertTo-Json
     $patchFile = Join-Path $env:TEMP "hongguo-patch-$Version.json"
     [System.IO.File]::WriteAllText($patchFile, $patch, (New-Object System.Text.UTF8Encoding($false)))
-    & curl.exe -s -x $Proxy -X PATCH -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/json" --data-binary "@$patchFile" "$api/releases/$($rel.id)" | Out-Null
+    & curl.exe -s @px -X PATCH -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/json" --data-binary "@$patchFile" "$api/releases/$($rel.id)" | Out-Null
 } else {
-    $relJson = & curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/json" --data-binary "@$bodyFile" "$api/releases"
+    $relJson = & curl.exe -s @px -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/json" --data-binary "@$bodyFile" "$api/releases"
     $rel = $relJson | ConvertFrom-Json
     if (-not $rel.id) { throw "release create failed: $relJson" }
 }
@@ -94,11 +96,11 @@ foreach ($flavor in $flavors) {
     # Replace a same-named asset from a previous partial run so the uploaded
     # APK always matches the freshly computed sha256 in update.json.
     # (The assets endpoint returns a bare JSON array.)
-    $existing = (& curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" "$api/releases/$($rel.id)/assets") | ConvertFrom-Json
+    $existing = (& curl.exe -s @px -H "Authorization: token $env:GH_TOKEN" "$api/releases/$($rel.id)/assets") | ConvertFrom-Json
     foreach ($a in @($existing | Where-Object { $_.name -eq $asset })) {
-        & curl.exe -s -x $Proxy -X DELETE -H "Authorization: token $env:GH_TOKEN" $a.url | Out-Null
+        & curl.exe -s @px -X DELETE -H "Authorization: token $env:GH_TOKEN" $a.url | Out-Null
     }
-    $upl = & curl.exe -s -x $Proxy -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/vnd.android.package-archive" --data-binary "@$dst" "https://uploads.github.com/repos/jifenghahacao/hongguo-tv/releases/$($rel.id)/assets?name=$asset"
+    $upl = & curl.exe -s @px -H "Authorization: token $env:GH_TOKEN" -H "Content-Type: application/vnd.android.package-archive" --data-binary "@$dst" "https://uploads.github.com/repos/jifenghahacao/hongguo-tv/releases/$($rel.id)/assets?name=$asset"
     if (-not (($upl | ConvertFrom-Json).browser_download_url)) { throw "asset upload failed: $upl" }
     Write-Output "uploaded $asset"
 }
