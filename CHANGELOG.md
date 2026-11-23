@@ -3,6 +3,11 @@
 版本号规则：`主.次.修订`（对应 GitHub Release tag `v<版本>`，`android/app/build.gradle` 里的 `appVersion`）。
 每次发版运行 `scripts/release_android.ps1`：构建签名 APK → 发布 GitHub Release（附安装包与本版本说明）→ 更新 `update.json` 推送通道。已安装的用户会在启动时（每天最多一次）或「我的 → 检查更新」收到提示并自动下载安装。
 
+## v1.0.8（2026-11-23）
+
+### 修复
+- 无法播放：红果再次调整 v5 签名协议（proof 标记与 manifest 版本），已同步上游 v0.2.179 修复恢复取流
+
 ## v1.0.7（2026-11-20）
 
 ### 修复
