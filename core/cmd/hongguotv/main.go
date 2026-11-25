@@ -27,6 +27,7 @@ var uiFiles embed.FS
 var version = "0.2.9-dev"
 
 type server struct {
+	repair               *playbackRepairService
 	instanceID           string
 	startedAt            time.Time
 	hongguo              *hongguoClient
@@ -42,6 +43,7 @@ type server struct {
 	feedCacheStore       *feedCacheStore
 	playCacheStore       *playCacheStore
 	searchDiscoveryCache searchDiscoveryCache
+	announcementsService *announcementService
 }
 
 type statusResponse struct {
@@ -72,7 +74,28 @@ func main() {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	s := &server{instanceID: *instanceID, startedAt: time.Now().UTC(), hongguo: newHongguoClient(), radar: newRadarService(*dataDir, nil), libraryStore: library}
+	s := &server{instanceID: *instanceID, startedAt: time.Now().UTC(), hongguo: newHongguoClient(), radar: newRadarService(*dataDir, nil), announcementsService: newAnnouncementService(nil), libraryStore: library}
+	if profile, e := newNativeProfileService(*dataDir); e == nil {
+		defaultNativeProfile.Store(profile)
+		profile.check()
+		defer func() {
+			defaultNativeProfile.Store(nil)
+			closeCtx, stop := context.WithTimeout(context.Background(), 35*time.Second)
+			defer stop()
+			_ = profile.close(closeCtx)
+		}()
+	} else {
+		log.Print("native playback profile unavailable; retaining existing sources")
+	}
+	s.repair = newPlaybackRepairService(*dataDir)
+	defaultPlaybackRepair.Store(s.repair)
+	defer func() {
+		defaultPlaybackRepair.Store(nil)
+		closeCtx, stop := context.WithTimeout(context.Background(), 35*time.Second)
+		defer stop()
+		s.repair.close(closeCtx)
+	}()
+	s.repair.check()
 	s.watchStatisticsStore = &watchStatisticsStore{dir: *dataDir}
 	if err := initPlaybackCustomDevice(filepath.Join(*dataDir, "playback-custom-device.json")); err != nil {
 		log.Printf("prepare custom playback device: %v", err)
@@ -118,6 +141,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/health", s.health)
 	mux.HandleFunc("/api/v1/status", s.status)
+	mux.HandleFunc("/api/v1/announcements", s.announcements)
 	mux.HandleFunc("/api/v1/library", s.library)
 	mux.HandleFunc("/api/v1/watch-statistics", s.watchStatistics)
 	mux.HandleFunc("/api/v1/account", s.account)
@@ -154,6 +178,7 @@ func main() {
 	mux.HandleFunc("/api/v1/Search", s.search)
 	mux.HandleFunc("/api/v1/play/info", s.playInfo)
 	mux.HandleFunc("/api/v1/PlayInfo", s.playInfo)
+	mux.HandleFunc("/api/v1/playback/repair", s.playbackRepair)
 	mux.HandleFunc("/api/v1/playback/custom-device", s.playbackCustomDevice)
 	mux.HandleFunc("/api/v1/cast/devices", s.castDevices)
 	mux.HandleFunc("/api/v1/cast/start", s.castStart)
@@ -182,7 +207,7 @@ func serveUI(root fs.FS) http.Handler {
 
 func (s *server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/v1/account") || r.URL.Path == "/api/v1/number-input" || r.URL.Path == "/api/v1/search/phone" || strings.HasPrefix(r.URL.Path, "/api/v1/lists/") || r.URL.Path == "/api/v1/search" || r.URL.Path == "/api/v1/Search" || r.URL.Path == "/api/v1/follow" || r.URL.Path == "/api/v1/notifications" || strings.HasPrefix(r.URL.Path, "/api/v1/player/") || r.URL.Path == "/api/v1/series/seasons" || r.URL.Path == "/api/v1/replies" || r.URL.Path == "/api/v1/reservation" || r.URL.Path == "/api/v1/comments" || r.URL.Path == "/api/v1/danmaku" || r.URL.Path == "/api/v1/library" || r.URL.Path == "/api/v1/watch-statistics" || r.URL.Path == "/api/v1/playback/custom-device" {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/account") || r.URL.Path == "/api/v1/number-input" || r.URL.Path == "/api/v1/search/phone" || strings.HasPrefix(r.URL.Path, "/api/v1/lists/") || r.URL.Path == "/api/v1/search" || r.URL.Path == "/api/v1/Search" || r.URL.Path == "/api/v1/follow" || r.URL.Path == "/api/v1/notifications" || strings.HasPrefix(r.URL.Path, "/api/v1/player/") || r.URL.Path == "/api/v1/series/seasons" || r.URL.Path == "/api/v1/replies" || r.URL.Path == "/api/v1/reservation" || r.URL.Path == "/api/v1/comments" || r.URL.Path == "/api/v1/danmaku" || r.URL.Path == "/api/v1/library" || r.URL.Path == "/api/v1/watch-statistics" || strings.HasPrefix(r.URL.Path, "/api/v1/playback/") {
 			if !privateLocalRequest(r) {
 				writeError(w, http.StatusForbidden, "只允许应用本身访问账号和记录")
 				return
@@ -263,7 +288,7 @@ func (s *server) status(w http.ResponseWriter, r *http.Request) {
 		InstanceID:     s.instanceID,
 		Implementation: "go-api-adapter+embedded-playback",
 		StartedAt:      s.startedAt.Format(time.RFC3339),
-		Capabilities:   []string{"tv-ui", "local-http", "focus-state-machine", "category", "rank", "actor-works", "ranking-radar", "search", "series-detail", "series-reviews", "related-series", "follow-updates", "notifications", "play-info", "embedded-playback", "cenc-mp4", "range-media", "local-history", "local-favorites", "local-likes", "resume-playback", "next-episode", "next-season", "account-login", "account-mfa", "cloud-library", "new-series", "release-calendar", "reservations", "recommend-feed", "comments", "danmaku", "infinite-scroll"},
+		Capabilities:   []string{"tv-ui", "playback-repair", "local-http", "focus-state-machine", "category", "rank", "actor-works", "ranking-radar", "search", "series-detail", "series-reviews", "related-series", "follow-updates", "notifications", "play-info", "embedded-playback", "cenc-mp4", "range-media", "local-history", "local-favorites", "local-likes", "resume-playback", "next-episode", "next-season", "account-login", "account-mfa", "cloud-library", "new-series", "release-calendar", "reservations", "recommend-feed", "comments", "danmaku", "infinite-scroll"},
 	})
 }
 

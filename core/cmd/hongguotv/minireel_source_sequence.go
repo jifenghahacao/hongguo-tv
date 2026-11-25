@@ -7,7 +7,17 @@ import (
 )
 
 func miniReelProductionSources() miniReelPlaybackSources {
-	return miniReelPlaybackSources{
+	var repair func(context.Context, string, string, string) ([]miniReelOption, error)
+	if service := defaultPlaybackRepair.Load(); service != nil {
+		repair = service.resolve
+	}
+	return miniReelPlaybackSources{repair: repair,
+		profile: func(ctx context.Context, vid, mode, contentType string) ([]miniReelOption, error) {
+			if service := defaultNativeProfile.Load(); service != nil {
+				return service.resolve(ctx, vid, mode, contentType)
+			}
+			return nil, nil
+		},
 		tabEndpoint: miniReelVideoTabBase + miniReelVideoTabPath, tabIdentity: miniReelPlaybackRouteIdentities[2],
 		legacyEndpoints:  []string{"https://api5-normal-sinfonlineb.fqnovel.com" + miniReelAPIPath, "https://api5-normal-hl.fqnovel.com" + miniReelAPIPath},
 		register:         registerMiniReelPlaybackDeviceContext,
@@ -23,6 +33,9 @@ func miniReelProductionSources() miniReelPlaybackSources {
 // Only time spent resolving models consumes the shared 30-second source budget.
 // The media job retains its existing overall deadline and cancellation owner.
 type miniReelSourceSequence struct {
+	profileTried                bool
+	repairTried                 bool
+	repairLast                  bool
 	sources                     miniReelPlaybackSources
 	vid, codecMode, contentType string
 	stage                       int
@@ -62,12 +75,48 @@ func miniReelSourceFallbackAllowed(err error) bool {
 }
 
 func (s *miniReelSourceSequence) next(ctx context.Context) ([]miniReelOption, error) {
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if _, err := normalizeMiniReelCodecMode(s.codecMode); err != nil {
 		return nil, err
 	}
 	if _, err := normalizeMiniReelContentType(s.contentType); err != nil {
 		return nil, err
 	}
+	if !s.repairTried && s.sources.repair != nil {
+		s.repairTried = true
+		attempt, stop := context.WithTimeout(ctx, 8*time.Second)
+		started := time.Now()
+		options, err := s.sources.repair(attempt, s.vid, s.codecMode, s.contentType)
+		stop()
+		s.spent += time.Since(started)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if err == nil && len(options) > 0 {
+			s.repairLast = true
+			return options, nil
+		}
+		// A verified repair rule is optional. Failures return to the complete native
+		// source sequence; media/decryption/player behavior retains its existing owner.
+	}
+	if !s.profileTried && s.sources.profile != nil {
+		s.profileTried = true
+		attempt, stop := context.WithTimeout(ctx, 3*time.Second)
+		started := time.Now()
+		options, err := s.sources.profile(attempt, s.vid, s.codecMode, s.contentType)
+		stop()
+		s.spent += time.Since(started)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if err == nil && len(options) > 0 {
+			s.repairLast = true
+			return options, nil
+		}
+	}
+	s.repairLast = false
 	for s.stage < 3 || s.singleLegacyPending || s.legacyPending {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -256,6 +305,10 @@ func prepareMiniReelWithSources(ctx context.Context, job *miniReelMediaJob, seri
 		}
 		option, err := selectMiniReelQuality(options, quality, fallback)
 		if err != nil {
+			if sequence.repairLast {
+				sequence.lastErr = err
+				continue
+			}
 			job.Err = wrapPlaybackPreparation(err, "source_select", "VIDEO_MODEL_NO_QUALITY")
 			return
 		}
