@@ -2260,13 +2260,16 @@
     if (!m.querySelector(".upd-dialog")) m.innerHTML = '<div class="upd-dialog"></div>';
     return m.querySelector(".upd-dialog");
   }
-  function showUpdateAvailable(d) {
+  function showUpdateAvailable(d, auto) {
     updShell().innerHTML =
       '<div class="upd-title">发现新版本 v' + esc(d.latest_version || "") + "</div>" +
       '<div class="upd-meta">安装包约 ' + updMb(d.size) + " · 覆盖升级保留账号和记录</div>" +
       '<div class="upd-notes">' + updNotesHtml(d.release_notes) + "</div>" +
       '<div class="upd-btns"><button class="upd-cancel">取消</button><button class="upd-ok" id="upd-go">立即更新</button></div>';
-    document.getElementById("upd-mask").querySelector(".upd-cancel").addEventListener("click", closeUpdDialog);
+    document.getElementById("upd-mask").querySelector(".upd-cancel").addEventListener("click", function () {
+      if (auto) updRememberDismiss(d.latest_code);
+      closeUpdDialog();
+    });
     document.getElementById("upd-go").addEventListener("click", function () {
       window.HongguoTVUpdates.download();
       showUpdateProgress({ state: "downloading", downloaded: 0, size: d.size, latest_version: d.latest_version });
@@ -2531,15 +2534,41 @@
   window.HongguoTV.canShowAppUpdate = function () {
     return !sheetWrap.classList.contains("open") && !player.classList.contains("open") && !$("#rank-page").classList.contains("open");
   };
+  // Auto-prompt suppression: same version won't re-appear on launch for 24h
+  // after the user dismisses it (manual "检查更新" always shows).
+  function updDismissed(code) {
+    try {
+      var d = JSON.parse(localStorage.getItem("hg_upd_dismiss") || "null");
+      return !!d && d.code === Number(code) && d.day === new Date().toISOString().slice(0, 10);
+    } catch (e) { return false; }
+  }
+  function updRememberDismiss(code) {
+    try { localStorage.setItem("hg_upd_dismiss", JSON.stringify({ code: Number(code) || 0, day: new Date().toISOString().slice(0, 10) })); } catch (e) { }
+  }
   // The update flow lives entirely in the WebView dialog now; keep the native
   // AlertDialog suppressed so users never see two prompts for one release.
   if (window.HongguoTVUpdates) {
     try { window.HongguoTVUpdates.setPromptAllowed(false); } catch (e) { }
+    // Proactive launch prompt: check on every start and show the dialog
+    // without the user ever tapping "检查更新".
     setTimeout(function () {
       var s0 = updStatus();
-      if (s0.state === "available") showUpdateAvailable(s0);
-      else if (s0.state === "ready") showUpdateReady(s0);
-    }, 2500);
+      if (s0.state === "ready") { showUpdateReady(s0); return; }
+      if (s0.state === "downloading" || s0.state === "installing") return;
+      if (s0.state === "available") {
+        if (!updDismissed(s0.latest_code)) showUpdateAvailable(s0, true);
+        return;
+      }
+      try { window.HongguoTVUpdates.check(); } catch (e) { return; }
+      var tries = 0;
+      var t = setInterval(function () {
+        var s = updStatus();
+        if (s.state === "checking" && tries++ < 40) return;
+        clearInterval(t);
+        renderUpdateRow();
+        if (s.state === "available" && !updDismissed(s.latest_code)) showUpdateAvailable(s, true);
+      }, 750);
+    }, 1800);
   }
   // MainActivity calls this instead of showing the old exit dialog: the first
   // back swipe shows a centered top pill, a second one within 3s exits.
