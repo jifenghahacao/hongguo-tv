@@ -2,12 +2,12 @@
   "schema": 1,
   "variant": "standard",
   "package_name": "rocks.aston.hongguotv",
-  "version_code": 108,
-  "version_name": "1.0.8",
+  "version_code": 109,
+  "version_name": "1.0.9",
   "min_sdk": 23,
-  "size": 15472290,
-  "sha256": "23266537290c9cdc8001f6cbaaccadb43ae01fe50d3d1785e3cd84c75af19f64",
-  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.8/hongguo-tv-1.0.8.apk",
-  "release_notes": "### 修复\n- 无法播放：红果再次调整 v5 签名协议（proof 标记与 manifest 版本），已同步上游 v0.2.179 修复恢复取流",
-  "published_at": "2026-11-23T14:40:59.143729+00:00"
+  "size": 19927516,
+  "sha256": "5e4887edcec67f98a8dfd1d63c620ef0d44f3ba2c9656f1d71ba5b5080f0ca84",
+  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.9/hongguo-tv-1.0.9.apk",
+  "release_notes": "### 新增\n- 播放协议自愈系统（同步上游 v0.2.180-182）：播放签名规则改为可远程更新的加密协议描述，红果服务端再调整签名时**自动恢复播放，无需等新版安装**\n\n### 修复\n- 最新版本无法播放：v5 取流的 video_tab 设备信封签名已刷新，匿名注册异常响应现在会正确分类并自动重试",
+  "published_at": "2026-11-25T15:32:07.112199+00:00"
 }
