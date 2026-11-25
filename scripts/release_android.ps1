@@ -1,4 +1,4 @@
-﻿# One-command Android release: signed APK -> GitHub Release -> auto-update manifest.
+# One-command Android release: signed APK -> GitHub Release -> auto-update manifest.
 # Installed users pick the new version up on next launch (<=1 check/day) or via
 # "Mine -> Check for updates"; download is SHA-256 + signature verified.
 #
