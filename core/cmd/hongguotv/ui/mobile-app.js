@@ -532,6 +532,7 @@
       '<button class="fi-act" data-act="cast">' + ic("cast") + '</button>' +
       '<button class="fi-act" data-act="cmt">' + ic("msg") + '</button>' +
       '<button class="fi-act" data-act="rank">' + ic("trophy") + '</button>' +
+      '<button class="fi-act" data-act="share">' + ic("share") + '</button>' +
       '<button class="fi-act" data-act="fav">' + ic("star") + favLabel + '</button>' +
       '</div>' +
       '<div class="fi-play"><button class="icon-btn">' + ic("play") + '</button></div>';
@@ -577,6 +578,7 @@
         e.stopPropagation();
         var vid = d.vid || (d.vid_list && d.vid_list[0]) || "";
         if (b.dataset.act === "cast") { openCastSheet(); return; }
+        if (b.dataset.act === "share") { shareSeries(d); return; }
         if (b.dataset.act === "fav") toggleFav(b, d);
         if (b.dataset.act === "rank") openRankPage();
         if (b.dataset.act === "cmt") { homeCmtD = d; homeCmt.open(); }
@@ -1775,6 +1777,9 @@
   // the initial URL (cold start) or via the native dispatch (warm start).
   async function openSeriesById(id) {
     if (!id) return;
+    // Deep-link arrival over the top of the feed: silence whatever the home
+    // feed or cinema page is playing so the detail view opens in quiet.
+    document.querySelectorAll("video").forEach(function (v) { try { v.pause(); } catch (e) { } });
     try {
       var det = await getJSON("/api/v1/series/detail", { series_id: id });
       var d = (det && det.drama) ? det.drama : (det || {});
@@ -1832,11 +1837,21 @@
   // Share: Web Share API surfaces the system sheet (WeChat installed shows
   // 微信好友). The link is a GitHub Pages relay page that re-opens this app
   // via the hongguo:// deep link, with an APK download fallback.
+  // base64url keeps the shared URL short even for Chinese titles
+  // (percent-encoding costs 9 chars per character, this costs ~1.4).
+  function b64url(s) {
+    var e = encodeURIComponent(s), bin = "";
+    for (var i = 0; i < e.length; i++) {
+      if (e.charAt(i) === "%") { bin += String.fromCharCode(parseInt(e.substr(i + 1, 2), 16)); i += 2; }
+      else bin += e.charAt(i);
+    }
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
   function shareSeries(d) {
     // Keep the URL short: WeChat only receives plain text from the share
     // sheet and auto-links URLs inside it; long/encoded params risk breaking
     // the link detection, so cover/title are passed as query params only.
-    var link = "https://jifenghahacao.github.io/hongguo-tv/share.html?id=" + encodeURIComponent(d.series_id) + "&t=" + encodeURIComponent(d.title || "");
+    var link = "https://jifenghahacao.github.io/hongguo-tv/share.html?id=" + d.series_id + "&t=" + b64url(d.title || "红果短剧");
     var text = "《" + (d.title || "") + "》全集免费在线看，点击打开红果短剧 " + link;
     function copy() {
       try {

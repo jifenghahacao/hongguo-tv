@@ -45,12 +45,30 @@ body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background
   var q = new URLSearchParams(location.search);
   var id = q.get("id") || "";
   var t = q.get("t") || "";
-  var c = q.get("c") || "";
-  if (t) { document.getElementById("title").textContent = "《" + t + "》"; document.title = t + " · 红果短剧"; }
-  if (c && /^https:\/\//.test(c)) {
-    var im = document.getElementById("cover");
-    im.onerror = function () { im.remove(); };
-    im.src = c; im.style.display = "block";
+  if (t) {
+    // Title arrives base64url-encoded to keep the shared link short.
+    try {
+      var b64 = t.replace(/-/g, "+").replace(/_/g, "/");
+      while (b64.length % 4) b64 += "=";
+      t = decodeURIComponent(escape(atob(b64)));
+    } catch (e) { /* keep raw */ }
+  }
+  var c = "";
+  if (t) { document.getElementById("title").textContent = "《" + t + "》"; document.title = t + " · 红果短剧"; }  // Cover cannot ride in the link (signed URLs are huge and expire), so
+  // best-effort: scrape the official detail page for its og:image via a CORS
+  // relay. Any failure silently keeps the branded gradient.
+  if (id && /^\d{6,32}$/.test(id)) {
+    var target = "https://hongguoduanju.com/detail?series_id=" + id;
+    fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(target))
+      .then(function (r) { return r.text(); })
+      .then(function (h) {
+        var m = /property="og:image"[^>]*content="([^"]+)"/.exec(h) || /content="([^"]+)"[^>]*property="og:image"/.exec(h);
+        if (m && /^https:\/\//.test(m[1])) {
+          var im = document.getElementById("cover");
+          im.onerror = function () { im.remove(); };
+          im.src = m[1].replace(/&amp;/g, "&"); im.style.display = "block";
+        }
+      }).catch(function () { });
   }
   var deep = "hongguo://series/" + encodeURIComponent(id);
   function tryOpen() { location.href = deep; }
