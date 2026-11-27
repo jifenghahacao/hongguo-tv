@@ -630,18 +630,32 @@ public class MainActivity extends Activity {
         else startService(intent);
     }
 
-    // hongguo://series/<id> (also ?series=<id>) — shared links opened from
-    // WeChat/browser land here. Only [0-9A-Za-z_-] ids are accepted so the
-    // value can never break out of the JS string literal below.
+    // Deep links: hongguo://series/<id> (host form; "series" is the authority,
+    // not a path segment), hongguo://open?series=<id>, and the App Link form
+    // https://jifenghahacao.github.io/hongguo-tv/share.html?id=<id>.
+    // Only [0-9A-Za-z_-] ids are accepted so the value can never break out of
+    // the JS string literal below.
     private static String parseSeriesLink(Intent intent) {
         if (intent == null || intent.getData() == null) return null;
         android.net.Uri data = intent.getData();
         String scheme = data.getScheme();
-        if (scheme == null || !scheme.startsWith("hongguo")) return null;
+        if (scheme == null) return null;
         String id = null;
-        java.util.List<String> segs = data.getPathSegments();
-        if (segs.size() >= 2 && "series".equals(segs.get(0))) id = segs.get(1);
-        if (id == null) id = data.getQueryParameter("series");
+        if (scheme.equals("https") || scheme.equals("http")) {
+            String host = data.getHost();
+            String path = data.getPath();
+            if (host != null && host.endsWith("github.io") && path != null && path.contains("share.html")) {
+                id = data.getQueryParameter("id");
+            }
+        } else if (scheme.startsWith("hongguo")) {
+            java.util.List<String> segs = data.getPathSegments();
+            if ("series".equals(data.getHost())) {
+                if (!segs.isEmpty()) id = segs.get(0);
+            } else if (segs.size() >= 2 && "series".equals(segs.get(0))) {
+                id = segs.get(1);
+            }
+            if (id == null) id = data.getQueryParameter("series");
+        }
         if (id == null || !id.matches("[0-9A-Za-z_-]{1,64}")) return null;
         return id;
     }

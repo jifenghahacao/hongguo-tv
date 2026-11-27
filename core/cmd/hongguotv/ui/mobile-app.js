@@ -1833,8 +1833,10 @@
   // 微信好友). The link is a GitHub Pages relay page that re-opens this app
   // via the hongguo:// deep link, with an APK download fallback.
   function shareSeries(d) {
-    var link = "https://jifenghahacao.github.io/hongguo-tv/share.html?id=" + encodeURIComponent(d.series_id) + "&t=" + encodeURIComponent(d.title || "");
-    var text = "我在红果短剧看到《" + (d.title || "") + "》，点这里直接打开观看：" + link;
+    var base = "https://jifenghahacao.github.io/hongguo-tv/share.html?id=" + encodeURIComponent(d.series_id) + "&t=" + encodeURIComponent(d.title || "");
+    var cv = coverOf(d);
+    var link = cv && cv.indexOf("http") === 0 ? base + "&c=" + encodeURIComponent(cv) : base;
+    var text = "《" + (d.title || "") + "》全集免费在线看，点击打开红果短剧";
     function copy() {
       try {
         navigator.clipboard.writeText(text).then(function () { toast("链接已复制，去微信粘贴分享"); }, function () { toast("分享链接：" + link); });

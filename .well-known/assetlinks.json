@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "rocks.aston.hongguotv",
+    "sha256_cert_fingerprints": [
+      "0C:41:3D:F8:41:95:F6:EA:E3:CE:AD:96:B4:93:73:8B:12:33:11:6B:73:01:F3:DB:E4:14:60:87:C3:CB:80:96"
+    ]
+  }
+}]
