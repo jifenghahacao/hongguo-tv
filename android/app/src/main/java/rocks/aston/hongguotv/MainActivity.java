@@ -85,6 +85,7 @@ public class MainActivity extends Activity {
     private RecommendedApps recommendedApps;
     private TvHomeChannelManager homeChannelManager;
     private String pendingHomeProgram;
+    private String pendingSeries;
     private volatile String diagnosticDeviceJSON = "{}";
     private final Runnable restoreFullscreen = () -> {
         if (activityForeground && hasWindowFocus() && !isFinishing() && !isDestroyed() && !inputEditingState.snapshot().isEditing() && !isKeyboardVisible()) {
@@ -108,6 +109,7 @@ public class MainActivity extends Activity {
 
         JSONObject initialHomeProgram = TvHomeChannelManager.parseLaunchIntent(getIntent());
         pendingHomeProgram = initialHomeProgram == null ? null : initialHomeProgram.toString();
+        pendingSeries = parseSeriesLink(getIntent());
         homeChannelManager = new TvHomeChannelManager(this);
         homeChannelManager.ensureDefaultChannel(false);
         startCoreService();
@@ -289,6 +291,7 @@ public class MainActivity extends Activity {
                     pageReady = true;
                     grantWebViewFocus(false);
                     appUpdater.start();
+                    dispatchPendingSeries();
                     if (BuildConfig.ANDROID5_COMPAT) {
                         view.evaluateJavascript("!!(window.HongguoTV && typeof window.HongguoTV.remoteKey === 'function' && JSON.parse(window.HongguoTVDiagnostics.readDevice()).sdk >= 21 && document.activeElement && document.activeElement.getAttribute('data-focus') && JSON.parse(window.HongguoTVUpdates.getStatus()).variant === 'android5')",
                                 result -> android.util.Log.i("HongguoAndroid5", "ui_ready=" + result));
@@ -547,7 +550,8 @@ public class MainActivity extends Activity {
                     coreUrl = coreReady.url;
                     // Phones get the immersive mobile UI; TVs keep the remote-driven app.
                     webView.loadUrl(DeviceDiagnostics.isTelevision(MainActivity.this)
-                        ? coreUrl : coreUrl + "/mobile.html");
+                        ? coreUrl : coreUrl + "/mobile.html"
+                            + (pendingSeries != null ? "#series=" + pendingSeries : ""));
                     grantWebViewFocus(false);
                 } else { showStartupFailure(); startupMessage.setText(failureMessage); }
             });
@@ -626,10 +630,39 @@ public class MainActivity extends Activity {
         else startService(intent);
     }
 
+    // hongguo://series/<id> (also ?series=<id>) — shared links opened from
+    // WeChat/browser land here. Only [0-9A-Za-z_-] ids are accepted so the
+    // value can never break out of the JS string literal below.
+    private static String parseSeriesLink(Intent intent) {
+        if (intent == null || intent.getData() == null) return null;
+        android.net.Uri data = intent.getData();
+        String scheme = data.getScheme();
+        if (scheme == null || !scheme.startsWith("hongguo")) return null;
+        String id = null;
+        java.util.List<String> segs = data.getPathSegments();
+        if (segs.size() >= 2 && "series".equals(segs.get(0))) id = segs.get(1);
+        if (id == null) id = data.getQueryParameter("series");
+        if (id == null || !id.matches("[0-9A-Za-z_-]{1,64}")) return null;
+        return id;
+    }
+
+    private void dispatchPendingSeries() {
+        String id;
+        synchronized (this) { id = pendingSeries; pendingSeries = null; }
+        if (id == null || !pageReady || destroyed || webView == null) return;
+        webView.evaluateJavascript("window.hongguoOpenSeries&&window.hongguoOpenSeries('" + id + "')", null);
+    }
+
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        String series = parseSeriesLink(intent);
+        if (series != null) {
+            synchronized (this) { pendingSeries = series; }
+            dispatchPendingSeries();
+            return;
+        }
         JSONObject launch = TvHomeChannelManager.parseLaunchIntent(intent);
         if (launch == null) return;
         synchronized (this) { pendingHomeProgram = launch.toString(); }
