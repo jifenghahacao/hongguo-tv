@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>红果短剧 · 分享</title>
+<style>
+:root{--red:#ff2d55}
+*{box-sizing:border-box;margin:0}
+body{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;background:linear-gradient(160deg,#14141c,#1e1426 60%,#241a2e);color:#f2f2f5;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.card{max-width:360px;width:100%;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:20px;padding:34px 24px;text-align:center}
+.logo{width:64px;height:64px;margin:0 auto 16px;border-radius:16px;background:linear-gradient(135deg,var(--red),#ff8a3d);display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:800}
+h1{font-size:19px;margin-bottom:6px;word-break:break-all}
+.sub{font-size:13px;color:#9a9aa6;line-height:1.7;margin-bottom:22px}
+.btn{display:block;width:100%;padding:14px;border-radius:26px;font-size:16px;font-weight:700;text-decoration:none;margin-bottom:12px}
+.btn-go{background:linear-gradient(90deg,#ff5a5a,#ff8a3d);color:#fff;border:none}
+.btn-dl{background:rgba(255,255,255,.1);color:#e8e8f2;border:1px solid rgba(255,255,255,.18)}
+.tip{font-size:12px;color:#8a8a96;line-height:1.8;margin-top:14px;text-align:left;background:rgba(0,0,0,.25);border-radius:10px;padding:12px 14px;display:none}
+.tip b{color:var(--red)}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">红</div>
+  <h1 id="title">红果短剧</h1>
+  <div class="sub">好剧大家看 —— 打开「红果短剧」App 直接跳到这部剧</div>
+  <button class="btn btn-go" id="open">打开 App 观看</button>
+  <a class="btn btn-dl" id="dl" href="https://github.com/jifenghahacao/hongguo-tv/releases/latest">没装 App？立即下载安装</a>
+  <div class="tip" id="tip">
+    <b>微信内打开？</b>点右上角「···」→ 选择「在浏览器打开」，<br>
+    再点「打开 App 观看」即可自动跳转（未安装会先下载安装）。
+  </div>
+</div>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var id = q.get("id") || "";
+  var t = q.get("t") || "";
+  if (t) document.getElementById("title").textContent = "《" + t + "》";
+  document.getElementById("dl").href = "https://github.com/jifenghahacao/hongguo-tv/releases/latest";
+  var ua = navigator.userAgent.toLowerCase();
+  var inWechat = ua.indexOf("micromessenger") !== -1;
+  var deep = "hongguo://series/" + encodeURIComponent(id);
+  function tryOpen() { location.href = deep; }
+  if (!id) { document.getElementById("open").textContent = "打开 App"; }
+  document.getElementById("open").addEventListener("click", tryOpen);
+  if (inWechat) {
+    document.getElementById("tip").style.display = "block";
+  } else if (id) {
+    // System browsers allow scheme redirects; give it a moment before the
+    // user notices, then keep the download button as the fallback.
+    setTimeout(tryOpen, 300);
+  }
+})();
+</script>
+</body>
+</html>
