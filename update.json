@@ -2,12 +2,12 @@
   "schema": 1,
   "variant": "standard",
   "package_name": "rocks.aston.hongguotv",
-  "version_code": 114,
-  "version_name": "1.0.14",
+  "version_code": 115,
+  "version_name": "1.0.15",
   "min_sdk": 23,
-  "size": 19945311,
-  "sha256": "29f9afa5c0c29963dc5356ceebafc61729239a62dda8ef056de38cea8941a366",
-  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.14/hongguo-tv-1.0.14.apk",
-  "release_notes": "### 修复\n- 分享到微信只有文字没有链接：链接改为直接嵌入分享文本（微信仅接收纯文本并自动识别网址）",
-  "published_at": "2026-11-27T12:54:28.030475+00:00"
+  "size": 19945843,
+  "sha256": "a76481510166c38d510d45b008bc44206fed4c8c431db587d6de51290c30b530",
+  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.15/hongguo-tv-1.0.15.apk",
+  "release_notes": "### 新增\n- 首页播放右侧操作栏新增分享按钮，每部短剧随手可分享\n\n### 优化\n- 分享链接大幅缩短（中文标题改用 base64url 编码，长度减半以上）\n- 中转页自动抓取剧集封面显示（尽力而为，失败时保留品牌海报样式）\n\n### 修复\n- 通过分享链接进入 App 后首页短剧仍在后台出声：进入详情页前现在会先停止所有播放",
+  "published_at": "2026-11-27T13:06:39.958814+00:00"
 }
