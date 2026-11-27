@@ -2,12 +2,12 @@
   "schema": 1,
   "variant": "standard",
   "package_name": "rocks.aston.hongguotv",
-  "version_code": 110,
-  "version_name": "1.0.10",
+  "version_code": 111,
+  "version_name": "1.0.11",
   "min_sdk": 23,
-  "size": 19927508,
-  "sha256": "cd4044014e4b9f7bd207aae0dde23442dc411a8f125243277a0aac408172ca01",
-  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.10/hongguo-tv-1.0.10.apk",
-  "release_notes": "### 新增\n- 打开应用自动检查更新：发现新版本直接弹出更新框，无需再手动点「检查更新」\n- 同一版本点「取消」后 24 小时内不再自动打扰，之后仍会提醒",
-  "published_at": "2026-11-25T15:33:51.226320+00:00"
+  "size": 19940232,
+  "sha256": "ab2d25b3dce26f854de6fe60a2818f554855baf793349a5979b38226de021050",
+  "download_url": "https://github.com/jifenghahacao/hongguo-tv/releases/download/v1.0.11/hongguo-tv-1.0.11.apk",
+  "release_notes": "### 修复\n- 短剧只显示前三集：红果详情接口收窄后集数目录不全，新增剧集目录恢复机制，完整集数列表已还原（同步上游 v0.2.184）",
+  "published_at": "2026-11-27T12:17:54.961344+00:00"
 }
